@@ -7,6 +7,7 @@
 //            --samples N averages N sub-frames per frame over shutter×(1/fps): motion blur + temporal AA;
 //            --samples auto picks the count per frame (4, 12, 36, 108 or 324, see Engine.render)
 //   info:    bun scripts/render.ts info   (the timeline and every lyric line: index, times, length — never the text)
+//   scan:    bun scripts/render.ts scan [--from 0] [--to <end>] [--step 0.1]   (renders without saving; prints the scenes' warnings)
 //   cues:    bun scripts/render.ts cues [--out ../out/qa/cues.json]   (scenes' cues + cuts, for tools/qa/cuecheck.py)
 //   --scale N (all modes): render at N× the W x H layout of src/config.ts (--scale 2 = 4K for 1920x1080).
 //   --query k=v (all modes): extra URL parameters for the app (e.g. style=wire for look tests).
@@ -223,6 +224,15 @@ try {
       for (const l of info.lines.filter((l) => l.start >= e.start - 0.05 && l.start < e.end - 0.05))
         console.log(`   line ${String(l.i).padStart(2)}  ${l.start.toFixed(2).padStart(7)} – ${l.end.toFixed(2).padStart(7)}  ${l.n} chars, ${l.words} words`);
     }
+  } else if (mode === 'scan') {
+    // render every --step s from --from to --to (single sample, nothing saved) for the scenes' own checks: anything a
+    // scene reports with console.warn (e.g. Still_Shining's MODESTY camera-vs-skirt check) is printed in full
+    const from = +opt('from', String(VIDEO_START))!, to = +opt('to', String(Number.isFinite(VIDEO_END) ? VIDEO_END : 30))!, step = +opt('step', '0.1')!;
+    for (let t = from; t < to; t += step) await page.evaluate((x) => (window as any).__pdoom.still(x), t);
+    const warn = logs.filter((l) => !/404|deprecated/.test(l));
+    console.log(`scanned ${from}–${to} every ${step} s: ${warn.length} warnings`);
+    for (const l of warn) console.log(l);
+    logs.length = 0;
   } else if (mode === 'cues') {
     const cues = await page.evaluate(() => (window as any).__pdoom.cues());
     const out = path.resolve(opt('out', path.join(ROOT, 'out/qa/cues.json'))!);
