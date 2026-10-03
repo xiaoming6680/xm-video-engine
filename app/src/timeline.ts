@@ -15,6 +15,8 @@ const scene = (name: string) => () => {
 export function makeTimeline(_ly: Lyrics, au: AudioData): TimelineEntry[] {
   const E = (id: string, file: string, start: number, end: number, extra: Partial<TimelineEntry> = {}): TimelineEntry =>
     ({ id, load: scene(file), start, end, ...extra });
+  // ?sky：只载入天空示例（云海、光点、日出光束、镜头虚化，scenes/demo_sky.ts），不在默认示例里
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
   // 示例：2D 场景 3 小节，同一个模块换参数再 2 小节，然后 3D 场景到结尾（都在强拍上硬切）
   const b3 = au.timeOfBar(3), b5 = au.timeOfBar(5);
   return [
