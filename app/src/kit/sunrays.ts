@@ -48,8 +48,11 @@ export class SunRays {
    */
   render(renderer: THREE.WebGLRenderer, out: THREE.WebGLRenderTarget, world: THREE.Texture, depth: THREE.Texture, fig: THREE.Texture, cam: THREE.Camera, sunDir: THREE.Vector3, k: number, seed: number, comp: { draw: (r: THREE.WebGLRenderer, t: THREE.Texture, o: THREE.WebGLRenderTarget, opts: { mode: 'add'; opacity: number }) => void }) {
     if (k <= 0.001) return;
-    const p = cam.position.clone().addScaledVector(sunDir, 1e5).project(cam);
-    if (p.z > 1) return;
+    // the sun's place on the screen: any point toward it projects there, so take one inside the camera's range (a
+    // fixed 1e5 fell past the far plane of cameras with far < 1e5 and the shafts silently vanished). p.z > 1: behind
+    const pc = cam as Partial<THREE.PerspectiveCamera>;
+    const p = cam.position.clone().addScaledVector(sunDir, ((pc.near ?? 0) + (pc.far ?? 2e5)) / 2).project(cam);
+    if (!(p.z <= 1)) return;
     const uv = new THREE.Vector2(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
     if (uv.x < -0.8 || uv.x > 1.8 || uv.y < -0.8 || uv.y > 1.8) return;
     const m = this.maskPass.u;
