@@ -1,0 +1,11 @@
+node_modules/
+out/
+__pycache__/
+*.pyc
+analysis/models/
+analysis/work/
+audio/stems/
+audio/stems4/
+assets/prompts/_codex/
+.DS_Store
+docs/archive/
