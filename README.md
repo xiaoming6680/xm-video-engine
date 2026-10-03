@@ -43,13 +43,13 @@ flowchart LR
 需要：[bun](https://bun.sh)、Node.js、Microsoft Edge（无头渲染用）、[ffmpeg](https://ffmpeg.org)、Python 3（音频分析和工具脚本用）。
 
 ```bash
-git clone <本仓库地址> xm-video-engine
+git clone https://github.com/xiaoming6680/xm-video-engine.git
 cd xm-video-engine/app
 bun install
 bunx vite
 ```
 
-打开终端打印的地址（通常是 http://localhost:5173）就能看到自带的示例：一首合成的测试曲配 2D 和 3D 两段画面。空格播放，←/→ 跳 1 秒，`,`/`.` 逐帧。
+打开终端打印的地址（通常是 <http://localhost:5173>），就能看到自带的示例：一首合成的测试曲配 2D 和 3D 两段画面。空格播放，←/→ 跳 1 秒，`,`/`.` 逐帧。
 
 <img src="docs/images/demo.jpg" alt="示例场景：跟着小节落下的方块和逐词高亮的歌词，后半段是体素字立在低多边形沙丘上" width="720">
 
@@ -57,14 +57,14 @@ bunx vite
 
 ```bash
 bun scripts/render.ts stills --t 3.1,12 --out ../out/stills     # 静帧
-bun scripts/render.ts video --out ../out/demo.mp4                # 整段视频
+bun scripts/render.ts video --out ../out/demo.mp4               # 整段视频
 bun scripts/render-par.ts --samples auto --out ../out/demo.mp4  # 多进程并行导出，带自适应运动模糊
 ```
 
 ## 做一支新 MV
 
 ```bash
-python tools/new_project.py ../我的新MV --vertical    # 竖版；横版去掉 --vertical
+python tools/new_project.py ../我的新MV --vertical  # 竖版；横版去掉 --vertical
 cd ../我的新MV/app && bun install
 ```
 
