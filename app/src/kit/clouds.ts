@@ -114,7 +114,8 @@ float weather(vec2 xz) {
   vec2 q = (xz + uWind * uT) / 21000.0;
   float a = texture(uShape, vec3(q, 0.21)).r, b = texture(uShape, vec3(q * 2.7 + 0.31, 0.63)).g;
   float n = a * 0.7 + b * 0.45;
-  float c = smoothstep(1.02 - uCov, 1.28 - uCov * 0.8, n);
+  // (at coverage 0 the noise alone still peaks into a few clouds: none, so a bump stands alone in a clear sky)
+  float c = uCov > 0.001 ? smoothstep(1.02 - uCov, 1.28 - uCov * 0.8, n) : 0.0;
   vec2 d = xz - uBump.xy;
   return max(c, uBump.w * exp(-dot(d, d) / (uBump.z * uBump.z)));
 }
@@ -155,7 +156,7 @@ void main() {
     tA = max(min(t0, t1), 0.0); tB = max(t0, t1);
   } else if (cam.y > uCB && cam.y < uCT) { tA = 0.0; tB = 1e9; }
   tB = min(tB, 42000.0);
-  if (tB <= tA || uCov <= 0.001) { fragColor = vec4(0.0); return; }
+  if (tB <= tA || (uCov <= 0.001 && uBump.w <= 0.001)) { fragColor = vec4(0.0); return; }
   float n = floor(mix(40.0, 72.0, uStepsK));
   float dt = max((tB - tA) / n, 12.0);
   float j = hash12(gl_FragCoord.xy + fract(uSeed * 7.31) * 113.0);
