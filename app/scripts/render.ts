@@ -227,7 +227,8 @@ try {
   } else if (mode === 'scan') {
     // render every --step s from --from to --to (single sample, nothing saved) for the scenes' own checks: anything a
     // scene reports with console.warn (e.g. Still_Shining's MODESTY camera-vs-skirt check) is printed in full
-    const from = +opt('from', String(VIDEO_START))!, to = +opt('to', String(Number.isFinite(VIDEO_END) ? VIDEO_END : 30))!, step = +opt('step', '0.1')!;
+    const dur: number = await page.evaluate(() => (window as any).__pdoom.duration);
+    const from = +opt('from', String(VIDEO_START))!, to = +opt('to', String(Math.min(dur, VIDEO_END)))!, step = +opt('step', '0.1')!;
     for (let t = from; t < to; t += step) await page.evaluate((x) => (window as any).__pdoom.still(x), t);
     const warn = logs.filter((l) => !/404|deprecated/.test(l));
     console.log(`scanned ${from}–${to} every ${step} s: ${warn.length} warnings`);
