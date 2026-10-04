@@ -103,7 +103,8 @@ def classify(p, dec):
 
 def main(report=False):
     audio = json.loads((DATA / "audio.json").read_text(encoding="utf-8"))
-    lyr = json.loads((DATA / "lyrics.json").read_text(encoding="utf-8"))
+    lp = DATA / "lyrics.json"   # 纯音乐没有歌词文件：人声切片不用避开歌词
+    lyr = json.loads(lp.read_text(encoding="utf-8")) if lp.exists() else {"lines": []}
     B = np.array(audio["beats"])
 
     def quant(t):
