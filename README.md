@@ -106,8 +106,8 @@ python analysis/separate.py vocals   # 分出人声和伴奏
 python analysis/separate.py demucs   # 分出鼓、贝斯、其他、人声四轨
 python analysis/analyze.py --bars    # 打印每小节的特征表，照着它在 analyze.py 开头填 SECTION_BARS（前奏、主歌、副歌……）
 python analysis/analyze.py           # → data/audio.json：节拍、强拍、段落、能量包络
-python analysis/events.py --bars     # → data/events.json：底鼓、军鼓、镲……每一下的时间；对着表听，不准就调阈值
 python analysis/ctc_align.py         # → data/lyrics.json：每个词的起止时间
+python analysis/events.py --bars     # → data/events.json：底鼓、军鼓、镲……每一下的时间；对着表听，不准就调阈值
 ```
 
 歌词对齐要先准备 `data/lyrics.src.lrc`：带逐行时间的 LRC 歌词，行时间大致准就行。FLAC 里内嵌了歌词的话可以直接导出：
@@ -118,6 +118,7 @@ ffprobe -v quiet -show_entries format_tags=LYRICS -of default=nw=1:nk=1 歌.flac
 
 - 逐词对齐目前只支持英文歌词；和英文行同一时间戳的中文行会作为译文一起保存，排双语歌词用
 - AI 生成的歌（人声卡得很准）再跑一次 `python analysis/snap_words.py`，把词吸附到 16 分音符格上
+- `events.py` 排在歌词对齐之后：它找人声切片时要避开唱词，歌词时间改过就重跑一次
 - 纯音乐跳过歌词这一步，引擎没有歌词文件也能跑
 - 跑完用 `cd app && bun scripts/render.ts info` 看一眼：时间线和每行歌词的时间、字数
 
