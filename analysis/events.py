@@ -218,7 +218,11 @@ def main(report=False):
 
     if report:
         sym = {"kick": "K", "snare": "S", "clap": "C", "hat": "h", "crash": "X", "perc": "p", "sub": "b", "chop": "v", "fx_hit": "F"}
-        nb = int(audio["duration"] / (B[4] - B[0])) + 1
+        def bar_t(k):   # 第 k 小节起点；节拍网格外（结尾的尾音）按最后一拍的间隔外推，和 quant() 一样
+            return B[4 * k] if 4 * k < len(B) else B[-1] + (4 * k - len(B) + 1) * (B[-1] - B[-2])
+        nb = 0
+        while bar_t(nb) < audio["duration"]:   # 从第一个强拍 B[0] 数到歌曲结尾
+            nb += 1
         for bar in range(nb):
             cells = []
             for step in range(16):
@@ -226,7 +230,7 @@ def main(report=False):
                 s = "".join(sorted({sym.get(e["type"], "") for e in here}, key="KSCXhpbvF".index))
                 cells.append(s or ".")
             extra = [f"{e['type']}@{e['step']}" for e in events if e["bar"] == bar and e["type"] in ("bass_in", "bass_out", "stop", "riser")]
-            print(f"bar {bar + 1:2d} {B[4 * bar]:6.2f}s | " + " ".join(f"{c:<3}" for c in cells) + ("  " + " ".join(extra) if extra else ""))
+            print(f"bar {bar + 1:2d} {bar_t(bar):6.2f}s | " + " ".join(f"{c:<3}" for c in cells) + ("  " + " ".join(extra) if extra else ""))
 
 
 if __name__ == "__main__":
