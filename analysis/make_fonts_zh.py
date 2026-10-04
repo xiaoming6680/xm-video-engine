@@ -1,7 +1,9 @@
-# Chinese fonts for the Chinese version (?zh=1; app/src/engine/lang.ts, zh.ts): Noto Sans SC and Noto Serif SC
-# (SIL OFL), subset to the characters the video prints in Chinese and instanced at the weights it draws
-# (lang.ts CJK_FAMILIES). The characters come from data/lyrics.zh.json (the lyric translation, the covers) and
-# from every string literal with Chinese in it under app/src (the plates' T('…', '…') strings, the watermark).
+# Chinese fonts (app/src/engine/lang.ts: every Latin family falls back to them glyph by glyph): Noto Sans SC and
+# Noto Serif SC (SIL OFL), subset to the characters the video prints in Chinese and instanced at the weights it
+# draws (lang.ts CJK_FAMILIES). The characters come from the lyrics the app loads (data/lyrics.json or
+# lyrics.approx.json: the lines and their translations, Line.zh; an older-style data/lyrics.zh.json too, if there
+# is one; an instrumental has none of them) and from every string literal with Chinese in it under app/src (scene
+# text, the watermark).
 # Only U+2000 and up are kept (CJK, full-width punctuation, “ ” ‘ ’ … —): Latin, digits and spaces come from
 # the video's own families (Archivo, IBM Plex Mono, Cormorant), which the Chinese faces stand behind.
 # Rerun after changing any Chinese text:
@@ -47,7 +49,8 @@ def han(s):
 
 LITERAL = re.compile(r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|`(?:\\.|[^`\\])*`")
 
-texts = list(strings(json.loads((ROOT / "data" / "lyrics.zh.json").read_text(encoding="utf-8"))))
+LYRICS = [ROOT / "data" / n for n in ("lyrics.json", "lyrics.approx.json", "lyrics.zh.json")]  # 纯音乐都没有：只用 app/src 里的中文
+texts = [s for p in LYRICS if p.exists() for s in strings(json.loads(p.read_text(encoding="utf-8")))]
 for f in sorted((ROOT / "app" / "src").rglob("*.ts")):
     src = f.read_text(encoding="utf-8")
     texts += [m for m in LITERAL.findall(src) if han(m)]
