@@ -10,6 +10,7 @@
 | 选模块、找某种效果在哪 | `docs/模块目录.md` |
 | 写场景（引擎 API、确定性、运动模糊、4K） | `docs/引擎指南.md` |
 | 写 TREATMENT | `docs/TREATMENT模板.md`，可借的想法在 `docs/方法.md` |
+| 做 CRT / 字符画 / 故障 / 像素 / 音游 / HUD 这类效果，或复刻参考片的镜头 | `docs/复刻配方.md`（第四节十段 `?ref` 是质量标准，第五节是逐帧对照方法） |
 | 每轮预览验收 | `docs/质量验收.md` |
 | 第三方笔刷、角色骨骼、画风说明 | `third_party/README.md` |
 
