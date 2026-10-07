@@ -71,7 +71,30 @@ export interface PostParams {
   pixelGrid: number;
   /** Letterbox: the fraction of the frame height covered by the black bars (top + bottom), e.g. 0.25. */
   letterbox: number;
+  /** CRT phosphor persistence 0..1 (0 = off): the fraction of a pixel's light left one 60 Hz refresh later (colour
+   *  tubes ~0.3, a long green P1 ~0.6). A bright thing that moves leaves fading copies at the previous refreshes; a
+   *  bright pixel that goes dark lags, a dark one lights at once; blue fades fastest. The engine renders the frame at
+   *  t − 1/60, t − 2/60 … for it (Engine.render), so it stays a pure function of t (stateless scenes only). Works
+   *  with or without crt. */
+  phosphor: number;
+  /** Riso print 0..1: the frame separated into spot inks, each a halftone screen at its own angle, mis-registered
+   *  a little, printed on paper (the HUD stays clean). */
+  riso: number;
+  /** Riso halftone cell (logical px). */
+  risoDot: number;
+  /** Riso mis-registration between the ink layers (logical px). */
+  risoShift: number;
+  /** Riso inks (RISO_INKS): 0 fluorescent pink + blue + yellow, 1 fluorescent pink + blue, 2 red + teal + yellow, 3 purple + fluorescent pink. */
+  risoInks: number;
 }
+
+/** Riso ink sets (sRGB hex): the paper, then 2–3 inks. */
+export const RISO_INKS: { paper: string; inks: string[] }[] = [
+  { paper: '#F4EFE6', inks: ['#FF48B0', '#0078BF', '#FFE800'] },
+  { paper: '#F4EFE6', inks: ['#FF48B0', '#0078BF'] },
+  { paper: '#F2ECE0', inks: ['#F15060', '#00838A', '#FFE800'] },
+  { paper: '#F4EFE6', inks: ['#765BA7', '#FF48B0'] },
+];
 
 export const DEFAULT_POST: PostParams = {
   exposure: 1,
@@ -109,10 +132,48 @@ export const DEFAULT_POST: PostParams = {
   pixelLevels: 0,
   pixelGrid: 0,
   letterbox: 0,
+  phosphor: 0,
+  riso: 0,
+  risoDot: 7,
+  risoShift: 3,
+  risoInks: 0,
 };
 
 /** The retro post parameters (uniform names = PostParams keys). */
-const RETRO = ['crt', 'crtCurve', 'crtLines', 'crtOff', 'crtNoise', 'glitch', 'glitchSeed', 'glitchSort', 'vhs', 'bw', 'bwThreshold', 'pixel', 'pixelLevels', 'pixelGrid', 'letterbox'] as const;
+const RETRO = ['crt', 'crtCurve', 'crtLines', 'crtOff', 'crtNoise', 'glitch', 'glitchSeed', 'glitchSort', 'vhs', 'bw', 'bwThreshold', 'pixel', 'pixelLevels', 'pixelGrid', 'letterbox', 'riso', 'risoDot', 'risoShift'] as const;
+
+const hex3 = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+/**
+ * A Riso ink set as shader uniforms: paper, inks (up to 3), and the matrix that turns a colour's optical density
+ * over the paper (log(colour / paper), per channel) into each ink's coverage (a least-squares fit for 2 inks).
+ */
+function risoSet(k: number) {
+  const set = RISO_INKS[Math.max(0, Math.min(RISO_INKS.length - 1, Math.round(k)))]!;
+  const paper = hex3(set.paper);
+  const inks = set.inks.map(hex3);
+  // columns: each ink's density per channel
+  const A = inks.map((c) => c.map((v, ch) => Math.log(Math.max(v, 0.02) / paper[ch]!)));
+  const n = A.length;
+  // M = (AᵀA)⁻¹Aᵀ  (n x 3), padded to 3 x 3
+  const ata = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => A[i]!.reduce((s, v, ch) => s + v * A[j]![ch]!, 0)));
+  const inv = invert(ata);
+  const M = Array.from({ length: 3 }, (_, i) => Array.from({ length: 3 }, (_, ch) => i < n ? inv[i]!.reduce((s, v, j) => s + v * A[j]![ch]!, 0) : 0));
+  const m3 = new THREE.Matrix3().set(...(M.flat() as [number, number, number, number, number, number, number, number, number]));
+  const ink = (i: number) => new THREE.Vector3(...(inks[i] ?? paper));
+  return { paper: new THREE.Vector3(...paper), ink0: ink(0), ink1: ink(1), ink2: ink(2), m: m3, n };
+}
+function invert(a: number[][]): number[][] {
+  const n = a.length, m = a.map((r, i) => [...r, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(m[r]![c]!) > Math.abs(m[p]![c]!)) p = r;
+    [m[c], m[p]] = [m[p]!, m[c]!];
+    const d = m[c]![c]! || 1e-9;
+    for (let j = 0; j < 2 * n; j++) m[c]![j]! /= d;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = m[r]![c]!; for (let j = 0; j < 2 * n; j++) m[r]![j]! -= f * m[c]![j]!; }
+  }
+  return m.map((r) => r.slice(n));
+}
 
 /** The frame's corner radius squared (the frame's height = 1, its width = the aspect). */
 export const FISHEYE_R2 = (W / H / 2) ** 2 + 0.25;
@@ -128,6 +189,7 @@ export class Post {
   private final: FSPass;
   private mips: THREE.WebGLRenderTarget[] = [];
   private ups: THREE.WebGLRenderTarget[] = [];
+  private risoKey = -1;
 
   constructor() {
     // the bloom pyramid stays at the logical resolution at every output scale (same radii, same look)
@@ -183,7 +245,24 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
       uniform float exposure, bloom, halation, ca, grain, vignette, hud, fade, flash, time, zoom, invert, zhOn, grade, fisheye, radial;
       uniform float ${RETRO.join(', ')};
       uniform vec2 shake; uniform vec2 res;
+      uniform vec3 risoPaper, risoInk0, risoInk1, risoInk2; uniform mat3 risoM; uniform float risoN;
       ${SHOULDER_GLSL}
+      // ---- Riso: the display colour at u (bloom, no fringes), each ink's coverage, a halftone screen ----
+      vec3 risoSample(vec2 u) {
+        vec3 c = (texture(src, u).rgb + texture(bloomTex, u).rgb * bloom) * exposure;
+        return toSRGB(sat(shoulder(c)));
+      }
+      vec3 risoCover(vec2 u) { return clamp(risoM * log(max(risoSample(u), vec3(0.02)) / risoPaper), 0.0, 1.0); }
+      float risoScreen(vec2 px, float ang, float c) {
+        // round dots up to half coverage, then round holes (the dots merge into a solid with white dots in it)
+        vec2 q = mat2(cos(ang), sin(ang), -sin(ang), cos(ang)) * px / risoDot;
+        float inv = step(0.5, c);
+        vec2 f = fract(q + 0.5 * inv) - 0.5;
+        float r = sqrt(mix(c, 1.0 - c, inv) / 3.14159);
+        float d = length(f), aa = max(fwidth(d) * 0.8, 0.02);
+        float m = 1.0 - smoothstep(r - aa, r + aa, d);
+        return mix(m, 1.0 - m, inv);
+      }
       float bayer4(vec2 p) {
         const float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
         ivec2 q = ivec2(mod(p, 4.0));
@@ -312,6 +391,18 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
         // an optional full-frame Canvas2D overlay over the HUD (straight alpha)
         if (zhOn > 0.5 && !tube) { vec4 z = texture(zhTex, vUv); col = mix(col, z.rgb, z.a); }
         col = shoulder(col);
+        if (riso > 0.0) {
+          // each ink sampled a little off (mis-registration), screened at its own angle, multiplied on the paper
+          vec2 sh = vec2(risoShift) / res;
+          float c0 = risoCover(uv + sh * vec2(1.0, 0.4)).x, c1 = risoCover(uv + sh * vec2(-0.6, -0.8)).y, c2 = risoCover(uv + sh * vec2(0.2, 1.0)).z;
+          // ink texture: uneven coverage, fixed on the paper
+          float tx = 0.6 * snoise(FRAG_PX * 0.05);
+          vec3 pr = risoPaper;
+          pr *= mix(vec3(1.0), risoInk0 / risoPaper, risoScreen(FRAG_PX, 0.2618, c0 * (1.0 + 0.25 * tx)));
+          if (risoN > 1.5) pr *= mix(vec3(1.0), risoInk1 / risoPaper, risoScreen(FRAG_PX + 1.7, 1.309, c1 * (1.0 - 0.25 * tx)));
+          if (risoN > 2.5) pr *= mix(vec3(1.0), risoInk2 / risoPaper, risoScreen(FRAG_PX + 3.1, 0.0, c2 * (1.0 + 0.2 * tx)));
+          col = mix(col, toLinear(pr), riso * (1.0 - h.a * hud));
+        }
         // impact frame: hard black and white (then invert makes it the negative kind)
         if (bw > 0.0) col = mix(col, vec3(step(bwThreshold, luma(col))), bw);
         col = mix(col, vec3(0.8515) - col * 0.84, invert); // ink<->bone in linear-ish space
@@ -396,6 +487,8 @@ ${SCALE === 1 ? `        float g1 = hash12(gl_FragCoord.xy + fract(time * 13.37)
       vignette: { value: 0.3 }, hud: { value: 1 }, fade: { value: 0 }, flash: { value: 0 }, time: { value: 0 },
       zoom: { value: 1 }, invert: { value: 0 }, grade: { value: 0 }, fisheye: { value: 0 }, radial: { value: 0 }, shake: { value: new THREE.Vector2() }, res: { value: new THREE.Vector2(W, H) },
       ...Object.fromEntries(RETRO.map((k) => [k, { value: DEFAULT_POST[k] }])),
+      risoPaper: { value: new THREE.Vector3() }, risoInk0: { value: new THREE.Vector3() }, risoInk1: { value: new THREE.Vector3() }, risoInk2: { value: new THREE.Vector3() },
+      risoM: { value: new THREE.Matrix3() }, risoN: { value: 0 },
     });
   }
 
@@ -447,6 +540,17 @@ ${SCALE === 1 ? `        float g1 = hash12(gl_FragCoord.xy + fract(time * 13.37)
     f.radial!.value = p.radial ?? 0;
     f.grade!.value = p.grade;
     for (const k of RETRO) f[k]!.value = p[k] ?? DEFAULT_POST[k];
+    if ((p.riso ?? 0) > 0) {
+      const inks = p.risoInks ?? 0;
+      if (inks !== this.risoKey) {
+        const r = risoSet(inks);
+        this.risoKey = inks;
+        (f.risoPaper!.value as THREE.Vector3).copy(r.paper);
+        (f.risoInk0!.value as THREE.Vector3).copy(r.ink0); (f.risoInk1!.value as THREE.Vector3).copy(r.ink1); (f.risoInk2!.value as THREE.Vector3).copy(r.ink2);
+        (f.risoM!.value as THREE.Matrix3).copy(r.m);
+        f.risoN!.value = r.n;
+      }
+    }
     (f.shake!.value as THREE.Vector2).set(p.shake[0], p.shake[1]);
     this.final.render(renderer, out);
   }

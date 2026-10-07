@@ -72,6 +72,10 @@ export class Engine {
   lastSamples = 1;
   lastErrors: number[] = [];
   private finalRT = new THREE.WebGLRenderTarget(PW, PH, { type: THREE.UnsignedByteType, depthBuffer: false });
+  // phosphor persistence (post.phosphor): the frame and the decaying earlier refreshes, max-combined
+  private persist = [makeRT(W, H, { depthBuffer: false }), makeRT(W, H, { depthBuffer: false })];
+  private persistPass: FSPass;
+  private persistWarned = false;
   private blit: FSPass;
   private xfade: FSPass;
   private accum: FSPass;
@@ -82,6 +86,8 @@ export class Engine {
   hudOff = false;
   /** Draw the animatic slate (?animatic): bar number, shot id, section and beat squares in a corner. */
   slate = false;
+  /** Post parameters from the URL (?post=k:v,…) that override the scenes' own. */
+  private urlPost: Partial<PostParams> = {};
 
   timeline: TimelineEntry[] = [];
 
@@ -101,6 +107,8 @@ export class Engine {
         bool ok = abs(c.r) <= 6e4 && abs(c.g) <= 6e4 && abs(c.b) <= 6e4 && abs(c.a) <= 6e4;
         fragColor = ok ? c : vec4(0.0);
       }`, { src: { value: null } }, { blending: THREE.CustomBlending, transparent: true });
+    this.persistPass = new FSPass(`uniform sampler2D a; uniform sampler2D b; uniform vec3 w;
+      void main(){ fragColor = vec4(max(texture(a, vUv).rgb, texture(b, vUv).rgb * w), 1.0); }`, { a: { value: null }, b: { value: null }, w: { value: new THREE.Vector3() } });
     const am = this.accum.mat;
     am.blendEquation = THREE.AddEquation;
     am.blendSrc = THREE.OneFactor; am.blendDst = THREE.OneFactor;
@@ -148,6 +156,11 @@ export class Engine {
       ? [{ id: 'beatcheck', load: () => import('./beatcheck'), start: 0, end: this.audio.duration }]
       : this.makeTimeline(this.lyrics, this.audio);
     this.slate = !!q?.has('animatic');
+    // ?post=riso:1,risoInks:1 — post parameters over every scene's own (trying a look on any scene)
+    for (const kv of (q?.get('post') ?? '').split(',').filter(Boolean)) {
+      const [k, v] = kv.split(':');
+      if (k && v !== undefined && k in DEFAULT_POST) (this.urlPost as any)[k] = +v;
+    }
     this.ctx = { renderer: this.renderer, audio: this.audio, lyrics: this.lyrics, comp: this.comp, W, H, id: '', params: {}, start: 0, end: 0 };
     this.post = new Post();
     this.hud = new Hud();
@@ -285,6 +298,7 @@ export class Engine {
       outTex = this.avgRT.texture;
     }
     this.lastSamples = n;
+    if ((post.phosphor ?? 0) > 0) outTex = this.phosphor(t, outTex, post.phosphor);
     const hudTex = this.hud.draw(t, { opacity: this.hudOff ? 0 : post.hud, watermark: post.watermark, paper: post.paper, slate: this.slate ? this.slateAt(t) : null });
     this.post.render(r, outTex, hudTex, this.finalRT, post, t);
     this.lastPost = post;
@@ -293,6 +307,37 @@ export class Engine {
       this.blit.render(r, null);
     }
     return n;
+  }
+
+  /**
+   * CRT phosphor persistence (post.phosphor = p): the light of the refreshes before this one is still fading on the
+   * glass. The frame is rendered again at t − k/60 (one sample each) and combined as max(frame, p^k · earlier
+   * frame): static things stay as they are, a bright thing that moves leaves fading copies, a bright pixel turning
+   * dark lags. Blue fades faster (p^1.6k). Still a pure function of t; skipped with stateful scenes on screen.
+   */
+  private phosphor(t: number, cur: THREE.Texture, p: number): THREE.Texture {
+    const r = this.renderer, q = Math.min(p, 0.9);
+    const on = this.timeline.filter((e) => t >= e.start - 0.1 && t < e.end);
+    if (on.some((e) => this.loaded.get(e.id)?.scene?.stateful)) {
+      if (!this.persistWarned) console.warn('phosphor persistence skipped: a stateful scene is on screen');
+      this.persistWarned = true;
+      return cur;
+    }
+    const K = Math.min(6, Math.ceil(Math.log(0.03) / Math.log(q)));
+    this.blit.u.src!.value = cur;
+    this.blit.render(r, this.persist[0]!);
+    let a = 0;
+    SS_TAP.value = -1;
+    for (let k = 1; k <= K; k++) {
+      const g = this.composite(Math.max(0, t - k / 60), 1 / 60, false).outTex;
+      const w = q ** k;
+      this.persistPass.u.a!.value = this.persist[a]!.texture;
+      this.persistPass.u.b!.value = g;
+      (this.persistPass.u.w!.value as THREE.Vector3).set(w, w, q ** (1.6 * k));
+      this.persistPass.render(r, this.persist[1 - a]!);
+      a = 1 - a;
+    }
+    return this.persist[a]!.texture;
   }
 
   /**
@@ -360,7 +405,7 @@ export class Engine {
         clearRT(r, rt, [0.25, 0.0, 0.0]);
       }
       rec.lastT = t;
-      post = { ...post, ...(e.post ?? {}), ...(ov ?? {}) };
+      post = { ...post, ...(e.post ?? {}), ...(ov ?? {}), ...this.urlPost };
       if (idx > 0 && !s.handlesTransition && under) {
         // default: crossfade from the previous scene over the overlap
         this.xfade.u.a!.value = under;
