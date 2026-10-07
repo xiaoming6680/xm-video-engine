@@ -15,6 +15,8 @@
 //   cues:    bun scripts/render.ts cues [--out ../out/qa/cues.json]   (scenes' cues + cuts, for tools/qa/cuecheck.py)
 //   glyphs:  bun scripts/render.ts glyphs [--from 0] [--to <end>] [--step 0.1]   (every character drawn in a font that lacks
 //            it — Canvas2D falls back to a system font, outlines come out blank; exit code 1 if any)
+//   --song <dir> (all modes): the song from <dir>/song.wav + audio.json + events.json (+ lyrics.json) instead of the
+//            project's audio/ and data/ — e.g. a reference film's music in refs/<name>/ (tools/grid_song.py makes one)
 //   --scale N (all modes): render at N× the W x H layout of src/config.ts (--scale 2 = 4K for 1920x1080).
 //   --query k=v (all modes): extra URL parameters for the app (e.g. style=wire for look tests).
 //   --channel msedge (all modes): drive installed Edge (default here: msedge; there is no Chrome on this machine).
@@ -45,6 +47,10 @@ const hist = (h: Record<string, number>) => Object.entries(h).sort((a, b) => +a[
 const ROOT = path.resolve(APP, '..');
 const FFMPEG = findFfmpeg();
 const VIDEO_START = config.VIDEO_START, VIDEO_END = config.VIDEO_END ?? Infinity;
+// --song <dir>: another song's files (relative to the project root), see the header
+const SONG = opt('song')?.replace(/\\/g, '/').replace(/\/$/, '');
+const SONG_AUDIO = SONG ? path.join(ROOT, SONG, 'song.wav') : path.join(ROOT, config.AUDIO);
+if (SONG && !existsSync(SONG_AUDIO)) throw new Error(`--song ${SONG}: ${SONG_AUDIO} not found`);
 
 async function reachable(url: string) {
   try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return r.ok; } catch { return false; }
@@ -88,7 +94,7 @@ async function openPage(url: string) {
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`[${m.type()}] ${m.text()}`); });
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   const only = opt('only');
-  const modeQ = mode === 'beatcheck' ? '&beatcheck=1' : mode === 'animatic' ? '&animatic=1' : mode === 'glyphs' ? '&glyphcheck=1' : '';
+  const modeQ = (mode === 'beatcheck' ? '&beatcheck=1' : mode === 'animatic' ? '&animatic=1' : mode === 'glyphs' ? '&glyphcheck=1' : '') + (SONG ? `&song=${encodeURIComponent(SONG)}` : '');
   await page.goto(`${url}/?export=1${modeQ}${only ? `&only=${only}` : ''}${SCALE !== 1 ? `&scale=${SCALE}` : ''}${opt('query') ? `&${opt('query')}` : ''}`);
   await page.waitForFunction(() => (window as any).__pdoom?.ready || (window as any).__pdoom?.error, null, { timeout: 120000 });
   const err = await page.evaluate(() => (window as any).__pdoom.error);
@@ -144,7 +150,7 @@ async function video(page: Page, from: number, to: number, fps: number, out: str
   // the review films (beatcheck, animatic) only have to be watchable: a fast encode
   const quick = mode === 'beatcheck' || mode === 'animatic';
   const crf = opt('crf', quick ? '23' : '16')!;
-  const audio = path.join(ROOT, config.AUDIO);
+  const audio = SONG_AUDIO;
   const args = [FFMPEG, '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${OW}x${OH}`, '-r', String(fps), '-i', 'pipe:0'];
   if (!flag('noaudio')) args.push('-ss', String(from), '-t', String(to - from), '-i', audio);
   // Frames are sRGB (toSRGB in the final pass): convert with the BT.709 matrix and tag the stream, otherwise ffmpeg

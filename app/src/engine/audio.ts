@@ -114,11 +114,12 @@ export class AudioData {
     this.tempo = (j as any).tempo ?? this.beats.map(() => this.bpm);
   }
 
-  static async load(): Promise<AudioData> {
-    const r = await fetch('data/audio.json');
-    if (!r.ok) throw new Error('no audio analysis data found (data/audio.json)');
+  /** `dir`: where audio.json / events.json are (default data/; engine.ts SONG_DIR for ?song=). */
+  static async load(dir = 'data/'): Promise<AudioData> {
+    const r = await fetch(`${dir}audio.json`);
+    if (!r.ok) throw new Error(`no audio analysis data found (${dir}audio.json)`);
     const a = new AudioData(await r.json());
-    const e = await fetch('data/events.json');
+    const e = await fetch(`${dir}events.json`);
     if (e.ok) a.ev = new Events((await e.json()).events);
     return a;
   }

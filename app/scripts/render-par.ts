@@ -9,6 +9,7 @@
 //     [--fadein 2.2] the song fades in over this long from --quiet (so the music does not come in abruptly)
 //     [--ding 102.4] a soft two-note chime at this song time (the message arriving; generated, not a sampled sound)
 //     [--gain -3]    audio gain in dB;  [--af <filters>] audio filters (default: src/config.ts AUDIO_FILTER)
+//     [--song <dir>] another song's files (<dir>/song.wav, audio.json …; passed on to render.ts too)
 //                             [render.ts video options, passed on: --samples auto --max-samples 108 --shutter 0.2 --crf 16 …]
 // Times are song seconds (src/config.ts VIDEO_START / VIDEO_END). ffmpeg: see scripts/common.ts.
 import path from 'node:path';
@@ -26,7 +27,9 @@ for (let i = 0; i < argv.length; i++) {
 }
 const APP = path.resolve(import.meta.dir, '..'), ROOT = path.resolve(APP, '..');
 const FPS = +opt('fps', '60')!;
-const DUR: number = JSON.parse(readFileSync(path.join(ROOT, 'data/audio.json'), 'utf-8')).duration;
+// --song <dir> (also passed on to each render.ts): its audio.json and song.wav instead of data/ and src/config.ts AUDIO
+const SONG = opt('song');
+const DUR: number = JSON.parse(readFileSync(path.join(ROOT, SONG ?? 'data', 'audio.json'), 'utf-8')).duration;
 const from = +opt('from', String(config.VIDEO_START))!, to = +opt('to', String(Math.min(DUR, config.VIDEO_END ?? Infinity)))!;
 const out = path.resolve(opt('out', path.join(ROOT, config.OUT))!);
 const workers = +opt('workers', '6')!, chunk = +opt('chunk', '8')!;
@@ -72,7 +75,7 @@ const list = path.join(segDir, 'list.txt');
 writeFileSync(list, chunks.map((c) => `file '${c.file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n') + '\n');
 const quiet = +opt('quiet', '0')!, ding = opt('ding');
 const dur = (nEnd - n0) / FPS, Q = Math.max(quiet, n0 / FPS), lead = Q - n0 / FPS;
-const ffIn = ['-f', 'concat', '-safe', '0', '-i', list, '-ss', String(Q), '-t', String(dur - lead), '-i', path.join(ROOT, config.AUDIO)];
+const ffIn = ['-f', 'concat', '-safe', '0', '-i', list, '-ss', String(Q), '-t', String(dur - lead), '-i', SONG ? path.join(ROOT, SONG, 'song.wav') : path.join(ROOT, config.AUDIO)];
 const ms = Math.round(lead * 1000);
 const fadeIn = +opt('fadein', '0')!, gain = +opt('gain', '0')!; // (--gain -4.5: the release, true peak under -1 dBTP)
 // audio filters: --af, else src/config.ts AUDIO_FILTER (e.g. taming a hot master), else none

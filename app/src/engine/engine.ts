@@ -11,6 +11,12 @@ import { loadFonts } from './type';
 import { loadStrokeFonts } from './stroke';
 import { glyphScope } from './glyphcheck';
 
+/**
+ * Where the song's files live: `?song=<dir>` (render.ts --song) reads <dir>/song.wav, audio.json, events.json and
+ * lyrics.json instead of audio/song.wav and data/ (a reference film's music in refs/, or trying another song).
+ */
+export const SONG_DIR = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('song') : null;
+
 export interface TimelineEntry {
   id: string;
   /** Lazy module loader; the module's default export is the Scene class. */
@@ -148,7 +154,8 @@ export class Engine {
   }
 
   async init(only?: (e: TimelineEntry) => boolean) {
-    [this.audio, this.lyrics] = await Promise.all([AudioData.load(), Lyrics.load(), loadFonts(), loadStrokeFonts()]) as [AudioData, Lyrics, void, void];
+    const dir = SONG_DIR ? `${SONG_DIR.replace(/\/$/, '')}/` : undefined;
+    [this.audio, this.lyrics] = await Promise.all([AudioData.load(dir), Lyrics.load(dir), loadFonts(), loadStrokeFonts()]) as [AudioData, Lyrics, void, void];
     // ?beatcheck: the beat-check film instead of the project's timeline (docs/新项目流程.md step 1);
     // ?animatic: the project's timeline with a slate (bar number, shot id, section) on every frame (step 3)
     const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
@@ -194,7 +201,8 @@ export class Engine {
     this.lastT = -1;
   }
 
-  get duration() { return this.audio.duration; }
+  /** The song's length, or the timeline's end if it runs longer (a reference re-creation timed to another film). */
+  get duration() { return Math.max(this.audio.duration, ...this.timeline.map((e) => e.end)); }
 
   /**
    * Every loaded scene's cues (Scene.cues), plus a 'cut' cue at each timeline entry's start (meant to land on a

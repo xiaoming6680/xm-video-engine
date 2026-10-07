@@ -1,5 +1,5 @@
 // Entry: preview player (default) or export mode (?export=1, driven by scripts/render.ts).
-import { Engine, type AdaptiveSampling } from './engine/engine';
+import { Engine, SONG_DIR, type AdaptiveSampling } from './engine/engine';
 import { glyphReport, installGlyphCheck } from './engine/glyphcheck';
 import { PW, PH, SCALE } from './engine/gl';
 import { makeTimeline } from './timeline';
@@ -106,7 +106,7 @@ function setupExport() {
 
 // ------------------------------------------------------------------ preview player
 function setupPlayer() {
-  const audio = new Audio(AUDIO);
+  const audio = new Audio(SONG_DIR ? `${SONG_DIR.replace(/\/$/, '')}/song.wav` : AUDIO);
   audio.preload = 'auto';
   const ui = document.getElementById('ui')!;
   const scrub = document.getElementById('scrub') as HTMLInputElement;
