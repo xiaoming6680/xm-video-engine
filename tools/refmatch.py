@@ -8,8 +8,18 @@
   python tools/refmatch.py grab 参考.mp4 --t 57.2,57.6 -o out/refmatch/full
   # 3. 并排对照：原片 ref-start + T 和引擎同一刻 T（场景本地秒）左右拼，每行一个时刻
   python tools/refmatch.py sheet 参考.mp4 --ref-start 56.0 --t 0.2,0.6,1.0 --query ref=stack [--only id] [--samples 12] -o out/refmatch/stack_r1.jpg
-  # 4. 视频对照：原速 n 遍 + 慢放 1 遍，配原片声音（只给自己看，不发布）
+  #    跨过切点：--cuts 自动取参考在 [--from, --to] 里每个切点前 0.1 s、前一帧、后一帧、后 0.1 s；--ours 也可以是渲好的视频
+  python tools/refmatch.py sheet 参考.mp4 --ref-start 0 --cuts --from 0 --to 25.6 --ours out/intro/v1.mp4 -o out/refmatch/intro_cuts.jpg
+  # 4. 连续帧条：从 t 起连续 n 帧（30 fps），上原片下引擎，看每帧长了什么、动了多少（单帧对照看不出“太静”）
+  python tools/refmatch.py strip 参考.mp4 --ref-start 0 --ours out/intro/v1.mp4 --t 12.0,16.2 [--n 8] -o out/refmatch/strip.jpg
+  # 5. 运动量：逐段 / 逐小节的每帧变化量（320×180 灰度相邻帧平均差），原片 vs 引擎，加曲线图
+  python tools/refmatch.py motion 参考.mp4 --ref-start 0 --ours out/intro/v1.mp4 [--from 0 --to 25.6] [--bar 1.6 | --seg 开机:0:8 --seg 海报:8:7.4] -o out/refmatch/motion.png
+  # 6. 视频对照：原速 n 遍 + 慢放 1 遍，配原片声音（只给自己看，不发布）。从头连着看一整段：--loops 1 --slow 0
   python tools/refmatch.py video 参考.mp4 --ref-start 56.0 --ours out/wip/stack.mp4 [--dur 2.6] [--loops 3] [--slow 4] -o out/refmatch/stack.mp4
+  # 接缝（切点前后锚点、运动、亮度、色调、声音的跳变）：python tools/qa/seams.py ours.mp4 --ref 参考.mp4 --ref-start 0
+
+验收看三样（docs/复刻配方.md 第五节）：单帧像（sheet）、连贯（seams.py，加带音乐原速从头连着看 video --loops 1 --slow 0）、
+运动量接近（motion：每段 引擎 / 原片 在 0.7–1.4 之间；strip 看每帧变化的内容）。
 
 sheet 会调用 app/scripts/render.ts stills（自己起私有服务器）；Python 找不到 bun 时（商店版 Python 看不到 AppData/Roaming），
 先在 app/ 里 `bun scripts/render.ts stills --t 0.2,0.6 --query ref=stack --samples 12 --out ../out/wip/x`，再加 `--ours out/wip/x`。--t 是“引擎这边的时间”（歌曲秒）；原片取 ref-start + t。
@@ -27,7 +37,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "qa"))
 from ffmpeg_path import FFMPEG  # noqa: E402
+from frames import decode, duration, frame_diff  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app"
@@ -110,12 +122,39 @@ def cmd_grab(a):
         print(grab(a.ref, t, out / f"ref_{t:07.2f}.png"))
 
 
+def ref_cuts(a) -> list[float]:
+    """参考在 [from, to]（引擎时间）里的切点（seams.find_events），每个取前 0.1 s、前一帧、后一帧、后 0.1 s。"""
+    from seams import find_events
+    fps = 30
+    t0, t1 = a.from_, a.to
+    g = decode(a.ref, a.ref_start + t0, t1 - t0, fps)
+    ts = []
+    for k0, k1 in find_events(g, fps):
+        tb, ta = t0 + k0 / fps, t0 + (k1 + 1) / fps
+        ts += [tb - 0.1, tb, ta, ta + 0.1]
+    return [round(t, 3) for t in ts if t0 <= t <= t1]
+
+
 def cmd_sheet(a):
-    ts = [float(x) for x in a.t.split(",")]
+    if a.cuts:
+        if a.from_ is None or a.to is None:
+            sys.exit("--cuts 要配 --from / --to（引擎时间）")
+        ts = ref_cuts(a)
+        print(f"参考的切点前后共 {len(ts)} 个时刻")
+    elif a.t:
+        ts = [float(x) for x in a.t.split(",")]
+    else:
+        sys.exit("要 --t 或 --cuts")
     tmp = Path(tempfile.mkdtemp(prefix="refmatch_"))
-    stills = Path(a.ours) if a.ours else tmp
-    if not a.ours:
-        render_stills(a, ts, tmp)
+    if a.ours and a.ours.lower().endswith((".mp4", ".mov", ".mkv")):
+        # a rendered video: its frame at engine time t is at t - ours_start
+        for t in ts:
+            grab(a.ours, t - a.ours_start, tmp / f"f_{t:07.2f}.png")
+        stills = tmp
+    else:
+        stills = Path(a.ours) if a.ours else tmp
+        if not a.ours:
+            render_stills(a, ts, tmp)
     _sheet(a, ts, stills, tmp)
 
 
@@ -158,6 +197,92 @@ def _sheet(a, ts, stills, tmp):
     print("\n".join(outs))
 
 
+def cmd_strip(a):
+    """连续 n 帧：上原片、下引擎（引擎是视频，按 30 fps 取帧）。"""
+    fps, n = 30, a.n
+    W = a.width // n
+    H = round(W * 9 / 16)
+    f = _font(16)
+    rows = []
+    for t in [float(x) for x in a.t.split(",")]:
+        r = decode(a.ref, a.ref_start + t, n / fps, fps, (W, H), gray=False)
+        o = decode(a.ours, t - a.ours_start, n / fps, fps, (W, H), gray=False)
+        for tag, fr, col in (("原片", r, (255, 214, 90)), ("引擎", o, (120, 230, 160))):
+            row = Image.new("RGB", (W * n, H + 24), (24, 24, 28))
+            d = ImageDraw.Draw(row)
+            d.text((6, 3), f"{tag} {t:.2f}s 起连续 {n} 帧（30 fps）  帧差中位数 {np.median(frame_diff(fr)):.1f}", fill=col, font=f)
+            for i in range(min(n, len(fr))):
+                row.paste(Image.fromarray(fr[i]), (i * W, 24))
+            rows.append(row)
+    sh = Image.new("RGB", (W * n, sum(r.height + 4 for r in rows)), (50, 50, 56))
+    y = 0
+    for r in rows:
+        sh.paste(r, (0, y))
+        y += r.height + 4
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    sh.save(a.out, quality=88)
+    print(a.out)
+
+
+def cmd_motion(a):
+    """逐段每帧变化量：原片 vs 引擎（同一段时间，30 fps，320×180 灰度相邻帧平均差）。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fps = 30
+    t0 = a.from_ if a.from_ is not None else 0.0
+    t1 = a.to if a.to is not None else min(duration(a.ours) + a.ours_start, duration(a.ref) - a.ref_start)
+    r = frame_diff(decode(a.ref, a.ref_start + t0, t1 - t0, fps))
+    o = frame_diff(decode(a.ours, t0 - a.ours_start, t1 - t0, fps))
+    n = min(len(r), len(o))
+    r, o = r[:n], o[:n]
+    if a.seg:
+        segs = []
+        for x in a.seg:
+            name, st, du = x.rsplit(":", 2)
+            segs.append((name, float(st), float(st) + float(du)))
+    else:
+        bar = a.bar or 1.6
+        segs = []
+        k = int(np.floor(t0 / bar + 1e-6))
+        while k * bar < t1 - 1e-6:
+            segs.append((f"{k + 1:02d}", max(t0, k * bar), min(t1, (k + 1) * bar)))
+            k += 1
+    print(f"{'段':<8}{'时间':>14}  {'原片':>5}{'引擎':>6}{'比':>6}   冻结帧    跳变>25")
+    worst = []
+    for name, st, en in segs:
+        i0, i1 = int(round((st - t0) * fps)), int(round((en - t0) * fps))
+        rs, os_ = r[i0:i1], o[i0:i1]
+        if len(rs) == 0:
+            continue
+        mr, mo = float(np.median(rs)), float(np.median(os_))
+        ratio = mo / max(mr, 0.5)
+        mark = "" if 0.7 <= ratio <= 1.4 else ("  ← 太静" if ratio < 0.7 else "  ← 太躁")
+        if mark:
+            worst.append(name)
+        print(f"{name:<8}{st:6.2f}–{en:6.2f}  {mr:6.1f}{mo:6.1f}{ratio:6.2f}  {int((rs < 0.3).sum()):>4}/{int((os_ < 0.3).sum()):<4} {int((rs > 25).sum()):>4}/{int((os_ > 25).sum()):<4}{mark}")
+    mr, mo = float(np.median(r)), float(np.median(o))
+    print(f"{'全段':<8}{t0:6.2f}–{t1:6.2f}  {mr:6.1f}{mo:6.1f}{mo / max(mr, 0.5):6.2f}")
+    print(f"比在 0.7–1.4 之外：{', '.join(worst) or '无'}")
+    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
+    plt.rcParams["axes.unicode_minus"] = False
+    ts = t0 + (np.arange(n) + 1) / fps
+    sm = lambda x: np.convolve(x, np.ones(5) / 5, mode="same")
+    fig, ax = plt.subplots(figsize=(16, 4.5), dpi=110)
+    ax.plot(ts, sm(r), color="#d9a400", lw=1.4, label="参考")
+    ax.plot(ts, sm(o), color="#2a9d5c", lw=1.4, label="引擎")
+    for _, st, _ in segs:
+        ax.axvline(st, color="#999", lw=0.5)
+    ax.set_xlabel("秒")
+    ax.set_ylabel("每帧变化量（0–255，5 帧平滑）")
+    ax.set_xlim(t0, t1)
+    ax.legend(loc="upper right")
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(a.out)
+    print(a.out)
+
+
 def cmd_video(a):
     tmp = Path(tempfile.mkdtemp(prefix="refmatch_"))
     dur = a.dur or float(subprocess.run([FFMPEG.replace("ffmpeg", "ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", a.ours], capture_output=True, text=True).stdout.strip())
@@ -187,18 +312,24 @@ def cmd_video(a):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
     p = sp.add_parser("frames"); p.add_argument("ref"); p.add_argument("--from", dest="from_", type=float, required=True); p.add_argument("--to", type=float, required=True)
     p.add_argument("--fps", type=float, default=10); p.add_argument("--cols", type=int, default=4); p.add_argument("--width", type=int, default=1920); p.add_argument("-o", "--out", required=True)
     p = sp.add_parser("sample"); p.add_argument("ref"); p.add_argument("--t", type=float, required=True); p.add_argument("--pt", action="append"); p.add_argument("--box", action="append")
     p = sp.add_parser("grab"); p.add_argument("ref"); p.add_argument("--t", required=True); p.add_argument("-o", "--out", required=True)
-    p = sp.add_parser("sheet"); p.add_argument("ref"); p.add_argument("--ref-start", type=float, required=True); p.add_argument("--t", required=True)
+    p = sp.add_parser("sheet"); p.add_argument("ref"); p.add_argument("--ref-start", type=float, required=True); p.add_argument("--t")
     p.add_argument("--query"); p.add_argument("--only"); p.add_argument("--samples", type=int, default=12); p.add_argument("--ours", help="stills already rendered by render.ts stills (f_0001.20.png …): skip rendering"); p.add_argument("--cell", type=int, default=360); p.add_argument("--rows", type=int, default=6); p.add_argument("-o", "--out", required=True)
+    p.add_argument("--cuts", action="store_true", help="the reference's cuts in --from..--to instead of --t"); p.add_argument("--from", dest="from_", type=float); p.add_argument("--to", type=float); p.add_argument("--ours-start", type=float, default=0.0, help="engine time at the start of an --ours video")
+    p = sp.add_parser("strip"); p.add_argument("ref"); p.add_argument("--ref-start", type=float, required=True); p.add_argument("--ours", required=True); p.add_argument("--ours-start", type=float, default=0.0)
+    p.add_argument("--t", required=True); p.add_argument("--n", type=int, default=8); p.add_argument("--width", type=int, default=2400); p.add_argument("-o", "--out", required=True)
+    p = sp.add_parser("motion"); p.add_argument("ref"); p.add_argument("--ref-start", type=float, required=True); p.add_argument("--ours", required=True); p.add_argument("--ours-start", type=float, default=0.0)
+    p.add_argument("--from", dest="from_", type=float); p.add_argument("--to", type=float); p.add_argument("--bar", type=float, help="one row per bar of this length (s); default 1.6"); p.add_argument("--seg", action="append", help="name:start:dur (engine time), repeatable"); p.add_argument("-o", "--out", required=True)
     p = sp.add_parser("video"); p.add_argument("ref"); p.add_argument("--ref-start", type=float, required=True); p.add_argument("--ours", required=True); p.add_argument("--dur", type=float)
     p.add_argument("--loops", type=int, default=3); p.add_argument("--slow", type=float, default=4); p.add_argument("--title"); p.add_argument("-o", "--out", required=True)
     a = ap.parse_args()
-    {"frames": cmd_frames, "sample": cmd_sample, "grab": cmd_grab, "sheet": cmd_sheet, "video": cmd_video}[a.cmd](a)
+    {"frames": cmd_frames, "sample": cmd_sample, "grab": cmd_grab, "sheet": cmd_sheet, "strip": cmd_strip, "motion": cmd_motion, "video": cmd_video}[a.cmd](a)
 
 
 if __name__ == "__main__":
