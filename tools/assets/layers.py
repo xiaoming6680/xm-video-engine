@@ -2,11 +2,15 @@
 
 For art/raw/NAME.png writes art/layers/NAME/:
   matte.png   character alpha (anime-seg ISNet, skytnt/anime-seg isnetis.onnx), 8-bit
-  depth.png   relative depth (Depth Anything V2 Large), 16-bit, 0 = far, 65535 = near
+  depth.png   relative depth (Depth Anything V2 Small, Apache-2.0), 16-bit, 0 = far, 65535 = near
   preview.jpg the frame, the matte and the depth side by side
 
   python tools/assets/layers.py k_street k_glass
   python tools/assets/layers.py --all
+  python tools/assets/layers.py --large k_street   # V2 Large instead: CC-BY-NC weights, not for monetised work
+
+Small vs Large on 15 key-art frames (Still_Shining, 暗叫): depth correlation 0.87-0.999 (most > 0.96), no visible
+difference in the previews; Depth Anything 3 was blurrier. See docs/模型选型.md.
 """
 import sys
 from pathlib import Path
@@ -43,7 +47,8 @@ def depth_model():
         iu.is_torchvision_available = lambda: False
         iu.is_torchvision_v2_available = lambda: False
         from transformers.models.depth_anything.modeling_depth_anything import DepthAnythingForDepthEstimation
-        _depth = DepthAnythingForDepthEstimation.from_pretrained("depth-anything/Depth-Anything-V2-Large-hf").to("cuda").eval()
+        size = "Large" if "--large" in sys.argv else "Small"
+        _depth = DepthAnythingForDepthEstimation.from_pretrained(f"depth-anything/Depth-Anything-V2-{size}-hf").to("cuda").eval()
     return _depth
 
 
@@ -82,8 +87,9 @@ def run(name):
     d.mkdir(parents=True, exist_ok=True)
     m = matte(rgb)
     z = depth(rgb)
-    cv2.imwrite(str(d / "matte.png"), (m * 255 + 0.5).astype(np.uint8))
-    cv2.imwrite(str(d / "depth.png"), (z * 65535 + 0.5).astype(np.uint16))
+    # cv2.imwrite silently fails on non-ASCII paths (D:\!XM的项目\...): encode, then write with numpy
+    cv2.imencode(".png", (m * 255 + 0.5).astype(np.uint8))[1].tofile(str(d / "matte.png"))
+    cv2.imencode(".png", (z * 65535 + 0.5).astype(np.uint16))[1].tofile(str(d / "depth.png"))
     H = 900
     W = rgb.shape[1] * H // rgb.shape[0]
     tiles = [cv2.resize(rgb, (W, H)),
@@ -94,6 +100,6 @@ def run(name):
 
 
 if __name__ == "__main__":
-    names = [p.stem for p in sorted(RAW.glob("*.png"))] if "--all" in sys.argv else sys.argv[1:]
+    names = [p.stem for p in sorted(RAW.glob("*.png"))] if "--all" in sys.argv else [a for a in sys.argv[1:] if not a.startswith("--")]
     for n in names:
         run(n)
