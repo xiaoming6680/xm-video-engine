@@ -2,7 +2,7 @@
 // docs/复刻配方.md): a sun on cream paper, an ornate frame pops round it, frames stack outward, each a little turned
 // and mis-registered, while the camera pulls back (a tunnel of frames); a flare line; the jump to light speed (streaks
 // and glyphs smeared outward, a swirl); a pink frame of stars closes in, the sun shrinks to a point, a cross flare.
-// Local seconds T = f.lt match the reference from 22.2 s.
+// Local seconds T match the reference from 22.2 s (song time − params.origin in the ?ref=intro chain, else f.lt).
 import type * as THREE from 'three';
 import { Scene, type Frame } from '../engine/scene';
 import { Layer2D, W, H } from '../engine/gl';
@@ -70,7 +70,7 @@ export default class RefDroste extends Scene {
   }
 
   render(f: Frame, out: THREE.WebGLRenderTarget) {
-    const { renderer, comp } = this.ctx, T = f.lt, c = this.layer.ctx;
+    const { renderer, comp } = this.ctx, T = f.t - (this.ctx.params.origin ?? this.ctx.start), c = this.layer.ctx;
     let post: Record<string, unknown> = {};
     if (T < JUMP) post = this.tunnel(c, T);
     else if (T < CLOSE) post = this.jump(c, T);

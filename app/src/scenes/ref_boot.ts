@@ -1,8 +1,11 @@
 // Boot (?ref=boot): a frame-matched re-creation of the kaomoji.exe opening (its 5.4–8.0 s; docs/复刻配方.md) —
 // a terminal close-up typing a command, Enter flashes the tube, the text whips away and bursts into tumbling glyph
 // particles that fly back and land as the character-grid face, a red scan bar, the face rolls up into a glyph ball.
-// Times are the scene's local seconds (T = f.lt) matching the reference from 5.4 s; in a real project put the beats
+// Times are the scene's local seconds (T) matching the reference from 5.4 s; in a real project put the beats
 // of the song on them. Log text and command are our own. New projects can delete it.
+// In the continuous ?ref=intro chain: params.origin = 5.4 (T = song time − 5.4, so the entry starts before 0 and the
+// terminal whips in from the right, as after the reference's floor shot) and params.exit = 'eye' (instead of whipping
+// off to the left the camera dives into the right eye, which turns into the red dot that becomes the poster's sun).
 import * as THREE from 'three';
 import { Scene, type Frame } from '../engine/scene';
 import { FSPass, Layer2D, W, H } from '../engine/gl';
@@ -13,6 +16,8 @@ import { clamp, ease, hash, mulberry32, prog } from '../engine/util';
 
 // key times (s, local)
 const ENTER = 0.8, BURST = 0.98, GATHER = 1.6, LAND = 1.82, SCAN = 1.98, BLINK = 2.2, ROLL = 2.44, END = 2.62;
+// exit 'eye': the right eye's centre and where the dive takes it (the reference's 7.93 s frame)
+const EYE = { x: W * 0.8, y: H * 0.43 }, EYE_TO = { x: W * 0.66, y: H * 0.45 };
 // motion trails: ghost copies at earlier times (a pure function of time, unlike a feedback buffer)
 const TRAIL = 6, TRAIL_DT = 0.011;
 const MONO = F.mono(600);
@@ -93,7 +98,7 @@ export default class DemoBoot extends Scene {
   }
 
   render(f: Frame, out: THREE.WebGLRenderTarget) {
-    const { renderer, comp } = this.ctx, T = f.lt;
+    const { renderer, comp } = this.ctx, T = this.T(f);
     // ---- background: the terminal's green-grey, near black while the particles fly, the warm grey glass for the face ----
     const faceUp = prog(T, LAND - 0.1, LAND + 0.15);
     const lin = (r: number, g: number, b: number) => new THREE.Vector3(...[r, g, b].map((v) => Math.pow(v / 255, 2.2)));
@@ -116,7 +121,8 @@ export default class DemoBoot extends Scene {
       comp.draw(renderer, this.fx.upload(), out, { mode: 'add', tint: [1.2, 0.9, 0.8] });
     }
     const flashEnter = T >= ENTER ? 0.8 * Math.exp(-(T - ENTER) * 32) : 0;
-    const flashEnd = prog(T, END - 0.04, END + 0.04);
+    const flashEnd = this.ctx.params.exit === 'eye' ? 0 : prog(T, END - 0.04, END + 0.04);
+    if (this.ctx.params.exit === 'eye') this.eyeDot(T, out);
     return {
       crt: 1, crtCurve: 0.11, crtLines: 300, vignette: 0.8, bloom: T < BURST ? 0.35 : 0.6, bloomThreshold: T < BURST ? 0.9 : 0.7, bloomRadius: 0.7, halation: 0.08,
       ca: 1.6, grain: 0.035, flash: flashEnter + flashEnd * 2, radial: 0,
@@ -124,13 +130,16 @@ export default class DemoBoot extends Scene {
   }
 
   private terminal(f: Frame, out: THREE.WebGLRenderTarget) {
-    const { renderer, comp } = this.ctx, T = f.lt, c = this.term.ctx;
+    const { renderer, comp } = this.ctx, T = this.T(f), c = this.term.ctx;
     this.term.clear();
-    // camera: a slow push and drift; after Enter the whole terminal whips off to the left
+    // camera: a slow push and drift; after Enter the whole terminal whips off to the left. Entering before T = 0 (the
+    // intro chain): it whips in from the right first
     const whip = ease.inCubic(prog(T, ENTER + 0.03, BURST));
+    const entry = this.ctx.start - (this.ctx.params.origin ?? this.ctx.start);
+    const whipIn = entry < 0 ? 1 - ease.outCubic(prog(T, entry, entry + 0.14)) : 0;
     const k = 1.0 + 0.04 * T;
     c.save();
-    c.translate(-W * 0.03 * T - whip * W * 1.6, H * 0.02 * T);
+    c.translate(-W * 0.03 * T - whip * W * 1.6 + whipIn * W * 1.3, H * 0.02 * T - whipIn * H * 0.25);
     c.scale(k, k);
     const FS = 128, LH = 150, X0 = 120;
     c.font = font(MONO, FS); c.textBaseline = 'alphabetic';
@@ -164,6 +173,23 @@ export default class DemoBoot extends Scene {
     comp.draw(renderer, this.term.upload(), out, { tint: [1.2, 1.2, 1.2] });
   }
 
+  /** Local time: song time − params.origin (the reference's 5.4 s in the intro chain), else the entry's own time. */
+  private T(f: Frame) { return f.t - (this.ctx.params.origin ?? this.ctx.start); }
+
+  /** exit 'eye': 0 → 1 over the dive into the right eye. */
+  private dive(T: number) { return ease.inCubic(prog(T, ROLL - 0.04, ROLL + 0.08)); }
+
+  /** exit 'eye': the red dot in the middle of the right eye (it carries over the cut into the poster's sun). */
+  private eyeDot(T: number, out: THREE.WebGLRenderTarget) {
+    const q = this.dive(T);
+    if (q <= 0) return;
+    const c = this.fx.ctx; this.fx.clear();
+    const x = EYE.x + (EYE_TO.x - EYE.x) * Math.min(1, q * 1.5), y = EYE.y + (EYE_TO.y - EYE.y) * Math.min(1, q * 1.5);
+    c.fillStyle = '#F04A2E'; c.shadowColor = '#FF3020'; c.shadowBlur = 20;
+    c.beginPath(); c.arc(x, y, 6 + 34 * q, 0, Math.PI * 2); c.fill();
+    this.ctx.comp.draw(this.ctx.renderer, this.fx.upload(), out, { opacity: Math.min(1, q * 3) });
+  }
+
   /** Particle i at local time T: position (px, z toward the viewer), rotation, glyph, alpha, colour gain. */
   private state(i: number, T: number) {
     const p = this.ps[i]!, te = Math.max(0, T - BURST), drag = 7.5;
@@ -185,9 +211,17 @@ export default class DemoBoot extends Scene {
         const keep = 130 * (1 - ease.inOutQuad(b)) + 14;
         if (Math.abs(p.ty - H * 0.43) > keep) a = 0;
       }
-      // the exit: the face whips off to the left (the trails smear its rows into stripes)
-      const r = ease.inCubic(prog(T, ROLL, END));
-      x -= r * W * 1.9; y += r * (p.ty - H * 0.45) * 0.15;
+      if (this.ctx.params.exit === 'eye') {
+        // the exit: the camera dives into the right eye (it slides to EYE_TO and grows), the rest dims
+        const q = this.dive(T);
+        const ex = EYE.x + (EYE_TO.x - EYE.x) * Math.min(1, q * 1.5), ey = EYE.y + (EYE_TO.y - EYE.y) * Math.min(1, q * 1.5), s = 1 + 2.4 * q;
+        x = ex + (x - EYE.x) * s; y = ey + (y - EYE.y) * s;
+        if (Math.hypot(p.tx - EYE.x, p.ty - EYE.y) > 150) a *= 1 - 0.85 * q;
+      } else {
+        // the exit: the face whips off to the left (the trails smear its rows into stripes)
+        const r = ease.inCubic(prog(T, ROLL, END));
+        x -= r * W * 1.9; y += r * (p.ty - H * 0.45) * 0.15;
+      }
     } else {
       // debris fades out while the face gathers
       a *= 1 - prog(T, GATHER - 0.05, LAND - 0.1);
@@ -198,7 +232,7 @@ export default class DemoBoot extends Scene {
   }
 
   private particles(f: Frame, out: THREE.WebGLRenderTarget) {
-    const { renderer } = this.ctx, T = f.lt, P = this.parts;
+    const { renderer } = this.ctx, T = this.T(f), P = this.parts;
     // landing pop: the face flares as it locks (eyes bloom)
     const pop = T >= LAND ? 1 + 0.35 * Math.exp(-(T - LAND) * 9) : 1;
     let n = 0;
