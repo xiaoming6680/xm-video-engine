@@ -87,6 +87,15 @@ export async function loadFonts(): Promise<void> {
   await document.fonts.ready;
 }
 
+/** Does a family the engine registered have a glyph for ch? null: not one of ours (the browser uses a system font). */
+export function hasGlyph(family: string, ch: string): boolean | null {
+  if (!bufCache.has(family)) return null;
+  return ot(family).charToGlyphIndex(ch) > 0;
+}
+
+/** Set by the glyph check (glyphcheck.ts): called for every outline glyph the family and its stand-in both lack. */
+export const outlineMiss: { hook: ((ch: string, family: string) => void) | null } = { hook: null };
+
 /** opentype.js Font for outline work (lazy-parsed). */
 export function ot(family: string): opentype.Font {
   let f = otCache.get(family);
@@ -206,6 +215,7 @@ export function textPathCommands(text: string, family: string, size: number, x =
     let glyph = f.charToGlyph(g.ch);
     // a glyph the family lacks (Chinese): the outline of its Chinese stand-in, as Canvas2D draws it
     if (glyph.index === 0 && bufCache.has(cjkFor(family))) glyph = ot(cjkFor(family)).charToGlyph(g.ch);
+    if (glyph.index === 0 && outlineMiss.hook && g.ch.trim()) outlineMiss.hook(g.ch, family);
     cmds.push(...glyph.getPath(x + g.x, y, size).commands);
   }
   return cmds;

@@ -13,6 +13,8 @@
 //   info:    bun scripts/render.ts info   (the timeline and every lyric line: index, times, length — never the text)
 //   scan:    bun scripts/render.ts scan [--from 0] [--to <end>] [--step 0.1]   (renders without saving; prints the scenes' warnings)
 //   cues:    bun scripts/render.ts cues [--out ../out/qa/cues.json]   (scenes' cues + cuts, for tools/qa/cuecheck.py)
+//   glyphs:  bun scripts/render.ts glyphs [--from 0] [--to <end>] [--step 0.1]   (every character drawn in a font that lacks
+//            it — Canvas2D falls back to a system font, outlines come out blank; exit code 1 if any)
 //   --scale N (all modes): render at N× the W x H layout of src/config.ts (--scale 2 = 4K for 1920x1080).
 //   --query k=v (all modes): extra URL parameters for the app (e.g. style=wire for look tests).
 //   --channel msedge (all modes): drive installed Edge (default here: msedge; there is no Chrome on this machine).
@@ -86,7 +88,7 @@ async function openPage(url: string) {
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`[${m.type()}] ${m.text()}`); });
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   const only = opt('only');
-  const modeQ = mode === 'beatcheck' ? '&beatcheck=1' : mode === 'animatic' ? '&animatic=1' : '';
+  const modeQ = mode === 'beatcheck' ? '&beatcheck=1' : mode === 'animatic' ? '&animatic=1' : mode === 'glyphs' ? '&glyphcheck=1' : '';
   await page.goto(`${url}/?export=1${modeQ}${only ? `&only=${only}` : ''}${SCALE !== 1 ? `&scale=${SCALE}` : ''}${opt('query') ? `&${opt('query')}` : ''}`);
   await page.waitForFunction(() => (window as any).__pdoom?.ready || (window as any).__pdoom?.error, null, { timeout: 120000 });
   const err = await page.evaluate(() => (window as any).__pdoom.error);
@@ -249,6 +251,15 @@ try {
     console.log(`scanned ${from}–${to} every ${step} s: ${warn.length} warnings`);
     for (const l of warn) console.log(l);
     logs.length = 0;
+  } else if (mode === 'glyphs') {
+    // like scan, with the app counting every character a listed font lacks (src/engine/glyphcheck.ts)
+    const dur: number = await page.evaluate(() => (window as any).__pdoom.duration);
+    const from = +opt('from', String(VIDEO_START))!, to = +opt('to', String(Math.min(dur, VIDEO_END)))!, step = +opt('step', '0.1')!;
+    for (let t = from; t < to; t += step) await page.evaluate((x) => (window as any).__pdoom.still(x), t);
+    const miss: { ch: string; code: string; how: string; fonts: string[]; scenes: string[]; first: number; n: number }[] = await page.evaluate(() => (window as any).__pdoom.glyphs());
+    console.log(`checked ${from}–${to} every ${step} s (and every scene's init): ${miss.length} missing glyph(s)`);
+    for (const m of miss) console.log(`  ${m.ch} ${m.code}  ${m.how}  ×${m.n}  first ${m.first.toFixed(2)}s  scenes: ${m.scenes.join(', ')}  fonts: ${m.fonts.join(' | ')}`);
+    if (miss.length) process.exitCode = 1;
   } else if (mode === 'cues') {
     const cues = await page.evaluate(() => (window as any).__pdoom.cues());
     const out = path.resolve(opt('out', path.join(ROOT, 'out/qa/cues.json'))!);

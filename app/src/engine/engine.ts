@@ -9,6 +9,7 @@ import { Hud } from './hud';
 import type { Cue, Frame, Scene, SceneClass, SceneCtx, PostOverrides } from './scene';
 import { loadFonts } from './type';
 import { loadStrokeFonts } from './stroke';
+import { glyphScope } from './glyphcheck';
 
 export interface TimelineEntry {
   id: string;
@@ -158,6 +159,7 @@ export class Engine {
   private async loadEntry(e: TimelineEntry) {
     const rec: Loaded = { entry: e, scene: null, lastT: -1 };
     this.loaded.set(e.id, rec);
+    glyphScope.id = `${e.id} (init)`;
     try {
       const mod = await e.load();
       const s = new mod.default({ ...this.ctx, id: e.id, params: e.params ?? {}, start: e.start, end: e.end });
@@ -350,6 +352,7 @@ export class Engine {
         }
       }
       let ov: PostOverrides | void = undefined;
+      glyphScope.id = e.id; glyphScope.t = t;
       try {
         ov = s.render(this.frameFor(e, t, sceneSeeked ? 0 : dt, sceneSeeked && !s.stateful, false, idx > 0 ? under : null, tin, tout), rt);
       } catch (err) {

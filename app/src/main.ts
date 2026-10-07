@@ -1,5 +1,6 @@
 // Entry: preview player (default) or export mode (?export=1, driven by scripts/render.ts).
 import { Engine, type AdaptiveSampling } from './engine/engine';
+import { glyphReport, installGlyphCheck } from './engine/glyphcheck';
 import { PW, PH, SCALE } from './engine/gl';
 import { makeTimeline } from './timeline';
 import { VIDEO_START, AUDIO, W, H } from './config';
@@ -24,6 +25,8 @@ declare global {
 let TIMELINE: typeof engine.timeline = [];
 
 async function boot() {
+  // ?glyphcheck (render.ts glyphs): note every character drawn in a font that lacks it, from the scenes' init on
+  if (params.has('glyphcheck')) installGlyphCheck();
   const onlySet = ONLY ? new Set(ONLY.split(',')) : null;
   await engine.init(onlySet ? (e) => onlySet.has(e.id) : undefined);
   TIMELINE = engine.timeline;
@@ -45,6 +48,8 @@ function setupExport() {
     width: PW,
     height: PH,
     timeline: TIMELINE.map(({ id, start, end }) => ({ id, start, end })),
+    /** Characters drawn so far that no listed font has (?glyphcheck; render.ts glyphs). */
+    glyphs() { return glyphReport(); },
     /** Every scene's registered cues plus the timeline cuts (render.ts cues → tools/qa/cuecheck.py). */
     cues() { return engine.cues(); },
     /** Render a single frame at t (seeks as needed). */
