@@ -40,6 +40,37 @@ export interface PostParams {
   radial: number;
   /** 0..1 film grade of the picture (not the HUD): a little log contrast, cool shadows, warm highlights. */
   grade: number;
+  // ---- retro / signal looks (all off by default; see docs/模块目录.md) ----
+  /** CRT tube 0..1: curved glass, scanlines, RGB grille, flicker, a rounded black bezel. The HUD is on the glass too. */
+  crt: number;
+  /** CRT barrel curvature (0 = flat glass), scaled by crt. */
+  crtCurve: number;
+  /** CRT scanlines over the frame height (270 = one every 4 px at 1080). */
+  crtLines: number;
+  /** CRT power: 0 = on; 0 -> 1 switches it off (the picture squeezes into a bright line, then a dot that fades).
+   *  Run it 1 -> 0 to switch the tube on. Works without crt (a flat screen switching off). */
+  crtOff: number;
+  /** CRT signal noise 0..1: snow, jittering rows, a rolling dark bar (an untuned or dying signal). */
+  crtNoise: number;
+  /** Digital glitch 0..1: displaced slices and blocks, torn rows, channel split, swapped channels. New pattern every frame. */
+  glitch: number;
+  /** Seed for the glitch pattern (two shots with the same frames but different seeds tear differently). */
+  glitchSeed: number;
+  /** Pixel-sort streaks 0..1: a few column bands smear down from a random row (the torn 3D box look). New every frame. */
+  glitchSort: number;
+  /** VHS tape 0..1: wobbling rows, a rolling tracking band, smeared and shifted chroma, head-switch noise at the bottom. */
+  vhs: number;
+  /** Impact frame 0..1: hard black and white on display luminance (bwThreshold). With invert: 1 it is the inverted kind. */
+  bw: number;
+  bwThreshold: number;
+  /** Pixelate: block size in logical px (0 or 1 = off). Bloom stays smooth over the blocks (the Hi-bit look). */
+  pixel: number;
+  /** Colour levels per channel with 4x4 ordered dither per block (0 = off): 2–8 for 8-bit palettes. */
+  pixelLevels: number;
+  /** 0..1 dark gaps between pixel blocks (dot-matrix LCD); needs pixel >= 3. */
+  pixelGrid: number;
+  /** Letterbox: the fraction of the frame height covered by the black bars (top + bottom), e.g. 0.25. */
+  letterbox: number;
 }
 
 export const DEFAULT_POST: PostParams = {
@@ -63,7 +94,25 @@ export const DEFAULT_POST: PostParams = {
   grade: 0,
   fisheye: 0,
   radial: 0,
+  crt: 0,
+  crtCurve: 0.12,
+  crtLines: 270,
+  crtOff: 0,
+  crtNoise: 0,
+  glitch: 0,
+  glitchSeed: 0,
+  glitchSort: 0,
+  vhs: 0,
+  bw: 0,
+  bwThreshold: 0.3,
+  pixel: 0,
+  pixelLevels: 0,
+  pixelGrid: 0,
+  letterbox: 0,
 };
+
+/** The retro post parameters (uniform names = PostParams keys). */
+const RETRO = ['crt', 'crtCurve', 'crtLines', 'crtOff', 'crtNoise', 'glitch', 'glitchSeed', 'glitchSort', 'vhs', 'bw', 'bwThreshold', 'pixel', 'pixelLevels', 'pixelGrid', 'letterbox'] as const;
 
 /** The frame's corner radius squared (the frame's height = 1, its width = the aspect). */
 export const FISHEYE_R2 = (W / H / 2) ** 2 + 0.25;
@@ -132,10 +181,82 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
     this.final = new FSPass(/* glsl */ `
       uniform sampler2D src; uniform sampler2D bloomTex; uniform sampler2D haloTex; uniform sampler2D hudTex; uniform sampler2D zhTex;
       uniform float exposure, bloom, halation, ca, grain, vignette, hud, fade, flash, time, zoom, invert, zhOn, grade, fisheye, radial;
+      uniform float ${RETRO.join(', ')};
       uniform vec2 shake; uniform vec2 res;
       ${SHOULDER_GLSL}
+      float bayer4(vec2 p) {
+        const float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+        ivec2 q = ivec2(mod(p, 4.0));
+        return (m[q.x + q.y * 4] + 0.5) / 16.0;
+      }
+      vec3 toYIQ(vec3 c) { return vec3(dot(c, vec3(0.299, 0.587, 0.114)), dot(c, vec3(0.596, -0.274, -0.322)), dot(c, vec3(0.211, -0.523, 0.312))); }
+      vec3 fromYIQ(vec3 y) { return vec3(y.x + 0.956 * y.y + 0.621 * y.z, y.x - 0.272 * y.y - 0.647 * y.z, y.x - 1.106 * y.y + 1.703 * y.z); }
       void main() {
-        vec2 uv = (vUv - 0.5) / zoom + 0.5 - shake / res;
+        // post runs once per output frame at the frame's time: per-frame randomness keys on this index
+        float fi = floor(time * 60.0 + 0.5);
+        vec2 asp = vec2(res.x / res.y, 1.0);
+        // ---- the CRT glass: barrel curvature (screen -> tube coordinates), then the power-off squeeze ----
+        bool tube = crt > 0.0 || crtOff > 0.0;
+        vec2 glass = vUv;
+        if (crt > 0.0) {
+          vec2 d = (vUv - 0.5) * 2.0;
+          d *= 1.0 + crtCurve * crt * d.yx * d.yx;
+          glass = d * 0.5 + 0.5;
+        }
+        vec2 suv = glass;
+        float offY = 1.0, offX = 1.0;
+        if (crtOff > 0.0) {
+          // the picture squeezes to a line first (0 .. 0.55), the line shrinks to a dot late (0.75 .. 0.97)
+          offY = max(0.006, 1.0 - smoothstep(0.0, 0.55, crtOff));
+          offX = max(0.004, 1.0 - smoothstep(0.75, 0.97, crtOff));
+          suv = 0.5 + (suv - 0.5) / vec2(offX, offY);
+        }
+        // ---- the signal: glitch slices / blocks, VHS wobble and tracking band, CRT row jitter ----
+        vec2 uv0 = suv;
+        float rowPx = suv.y * res.y;
+        bool swapCh = false, blackBlk = false;
+        float gsplit = 0.0;
+        if (glitch > 0.0) {
+          float gs = fi + glitchSeed * 101.0;
+          float bandH = mix(0.015, 0.11, hash11(gs * 3.1));
+          float band = floor((suv.y + hash11(gs * 1.3)) / bandH);
+          float r = hash12(vec2(band, gs));
+          if (r < 0.42 * glitch) {
+            uv0.x += (hash12(vec2(band * 1.7, gs + 3.0)) - 0.5) * 0.26 * glitch;
+            gsplit = (hash12(vec2(band, gs + 5.0)) - 0.3) * 14.0 * glitch;
+          }
+          float row = floor(rowPx / 2.0);
+          if (hash12(vec2(row, gs * 1.1)) < 0.05 * glitch) uv0.x += (hash12(vec2(row, gs + 9.0)) - 0.5) * 0.06;
+          vec2 blk = floor(suv * vec2(5.0, 24.0) * (1.0 + floor(hash11(gs * 2.3) * 2.0)));   // wide strips
+          float hb = hash12(blk + gs * 13.0);
+          if (hb > 1.0 - 0.09 * glitch) {
+            uv0 += (hash22(blk + gs) - 0.5) * vec2(0.2, 0.03) * glitch;
+            swapCh = hash12(blk + gs * 7.0) < 0.3;
+          }
+          if (hb < 0.025 * glitch) blackBlk = true;
+        }
+        if (glitchSort > 0.0) {
+          // pixel sort: in a few column bands everything below a random row repeats that row (vertical streaks)
+          float gs = fi + glitchSeed * 101.0;
+          float colB = floor(suv.x * mix(24.0, 70.0, hash11(gs * 0.7)));
+          if (hash12(vec2(colB, gs * 1.9)) < 0.3 * glitchSort) {
+            float y0 = hash12(vec2(colB * 3.3, gs));
+            if (suv.y < y0) uv0.y = y0 + (uv0.y - suv.y) * 0.02;   // (y up: the streaks run down from y0)
+          }
+        }
+        float vband = 0.0;
+        if (vhs > 0.0) {
+          uv0.x += sin(suv.y * 38.0 + fi * 0.21) * 0.0022 * vhs + (hash12(vec2(floor(rowPx / 2.0), fi)) - 0.5) * 0.004 * vhs;
+          float by = fract(fi * 0.0075 + 0.15);
+          vband = smoothstep(0.045, 0.0, abs(suv.y - by));
+          uv0.x += vband * (hash12(vec2(floor(rowPx / 3.0), fi)) - 0.5) * 0.05 * vhs;
+          if (suv.y < 0.035) uv0.x += (hash12(vec2(floor(rowPx), fi + 7.0)) - 0.3) * 0.04 * vhs; // head-switch tear
+        }
+        if (crtNoise > 0.0) {
+          uv0.x += (hash12(vec2(floor(rowPx / 2.0), fi + 17.0)) - 0.5) * 0.012 * crtNoise;
+          uv0.y += (hash11(fi * 0.37) - 0.5) * 0.01 * crtNoise;
+        }
+        vec2 uv = (uv0 - 0.5) / zoom + 0.5 - shake / res;
         // fisheye: the scene rendered a wider field; the middle is drawn back to its size, the edges bend
         if (fisheye > 0.0) {
           vec2 asp = vec2(res.x / res.y, 1.0);
@@ -143,9 +264,12 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
           d *= (1.0 + fisheye * dot(d, d)) / (1.0 + fisheye * ${FISHEYE_R2.toFixed(5)});
           uv = d / asp + 0.5;
         }
+        // pixelate: sample each block at its centre (the bloom below stays smooth)
+        vec2 uvS = uv;
+        if (pixel > 1.0) { vec2 cells = res / pixel; uvS = (floor(uv * cells) + 0.5) / cells; }
         vec2 dc = uv - 0.5;
         float r2 = dot(dc * vec2(res.x / res.y, 1.0), dc * vec2(res.x / res.y, 1.0));
-        vec2 off = dc * r2 * ca / res.x * 4.0;
+        vec2 off = dc * r2 * ca / res.x * 4.0 + vec2(gsplit + 3.0 * vhs, 0.0) / res.x;
         vec3 col;
         if (radial > 0.0) {
           // a zoom blur toward the middle (the shock of a hit), the colour fringes riding along
@@ -156,9 +280,18 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
           }
           col /= 14.0;
         } else {
-          col.r = texture(src, uv + off).r;
-          col.g = texture(src, uv).g;
-          col.b = texture(src, uv - off).b;
+          col.r = texture(src, uvS + off).r;
+          col.g = texture(src, uvS).g;
+          col.b = texture(src, uvS - off).b;
+        }
+        if (swapCh) col = col.brg;
+        if (blackBlk) col = C_INK * 0.5;
+        if (vhs > 0.0) {
+          // tape chroma: sharp luma, colour smeared to the right and a little late
+          vec3 y = toYIQ(col);
+          vec2 cc = vec2(0.0);
+          for (int i = 0; i < 6; i++) cc += toYIQ(texture(src, uvS - vec2((float(i) * 2.0 + 2.0) * vhs, 0.0) / res.x).rgb).yz;
+          col = max(fromYIQ(vec3(y.x, mix(y.yz, cc / 6.0, vhs))), 0.0);
         }
         vec3 bl = texture(bloomTex, uv).rgb;
         vec3 ha = texture(haloTex, uv).rgb;
@@ -172,12 +305,15 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
           gc *= mix(vec3(1.0), tint, grade);
           col = max(mix(vec3(ll), gc, 1.0 + 0.08 * grade), 0.0);
         }
-        // HUD is composited in linear space before the shoulder so it gets grain & vignette too
-        vec4 h = texture(hudTex, vUv);
+        // HUD is composited in linear space before the shoulder so it gets grain & vignette too (on a CRT: on the glass)
+        vec2 huv = tube ? suv : vUv;
+        vec4 h = texture(hudTex, huv);
         col = mix(col, h.rgb / max(h.a, 1e-4), h.a * hud);
         // an optional full-frame Canvas2D overlay over the HUD (straight alpha)
-        if (zhOn > 0.5) { vec4 z = texture(zhTex, vUv); col = mix(col, z.rgb, z.a); }
+        if (zhOn > 0.5 && !tube) { vec4 z = texture(zhTex, vUv); col = mix(col, z.rgb, z.a); }
         col = shoulder(col);
+        // impact frame: hard black and white (then invert makes it the negative kind)
+        if (bw > 0.0) col = mix(col, vec3(step(bwThreshold, luma(col))), bw);
         col = mix(col, vec3(0.8515) - col * 0.84, invert); // ink<->bone in linear-ish space
         col += C_BONE * flash;
         // vignette
@@ -185,6 +321,17 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
         col *= mix(1.0, v, vignette);
         col *= (1.0 - fade);
         vec3 s = toSRGB(sat(col));
+        // palette levels with ordered dither, one threshold per pixel block
+        if (pixelLevels > 1.0) {
+          vec2 cell = pixel > 1.0 ? floor(uv * res / pixel) : floor(FRAG_PX);
+          float L = pixelLevels - 1.0;
+          s = floor(s * L + bayer4(cell)) / L;
+        }
+        // dot-matrix gaps between the blocks
+        if (pixel >= 3.0 && pixelGrid > 0.0) {
+          vec2 fp = fract(uv * res / pixel), gw = vec2(1.15 / pixel);
+          s *= 1.0 - pixelGrid * 0.85 * max(step(1.0 - gw.x, fp.x), step(1.0 - gw.y, fp.y));
+        }
         // film grain: two scales, stronger in mid-tones
 ${SCALE === 1 ? `        float g1 = hash12(gl_FragCoord.xy + fract(time * 13.37) * 1000.0) - 0.5;
         float g2 = hash12(floor(gl_FragCoord.xy / 2.0) + fract(time * 7.13) * 1000.0) - 0.5;` : `        // output scale > 1: the fine grain is per physical px with its amplitude raised by PX_SCALE so its
@@ -195,12 +342,60 @@ ${SCALE === 1 ? `        float g1 = hash12(gl_FragCoord.xy + fract(time * 13.37)
         float amt = grain * (0.55 + 1.2 * lm * (1.0 - lm));
         s += (g1 * 0.6 + g2 * 0.4) * amt;
         s += (hash12(gl_FragCoord.xy * 1.37 + time) - 0.5) / 255.0; // dither
+        // VHS tracking band: a rolling stripe of snow
+        if (vhs > 0.0) {
+          float nz = hash12(vec2(floor(FRAG_PX.x / 3.0), floor(FRAG_PX.y / 2.0)) + fi * 31.0);
+          s = mix(s, vec3(nz), vband * 0.55 * vhs);
+          s = mix(s, s * vec3(1.04, 0.95, 1.06), 0.5 * vhs);
+        }
+        // ---- the CRT surface: snow, scanlines, RGB grille, flicker, power line, bezel ----
+        if (tube) {
+          if (crtNoise > 0.0) {
+            // a dying signal: colour drains, snow streaks along the lines
+            s = mix(s, vec3(luma(s)), crtNoise * 0.75);
+            float sn = hash12(vec2(floor(FRAG_PX.x / 6.0), floor(FRAG_PX.y / 2.0)) + fi * 91.7);
+            s = mix(s, vec3(sn * 0.85), crtNoise * 0.5);
+            s *= 1.0 - crtNoise * 0.35 * smoothstep(0.12, 0.0, abs(fract(glass.y - fi * 0.011) - 0.5) - 0.3);
+          }
+          float L = luma(sat(s));
+          float ph = 0.5 - 0.5 * cos(TAU * glass.y * crtLines);
+          s *= 1.0 - crt * 0.6 * ph * (1.0 - 0.55 * L);             // dark gaps, narrower on bright lines
+          int gx = int(mod(floor(gl_FragCoord.x / max(PX_SCALE * 1.0, 1.0)), 3.0));
+          vec3 grille = gx == 0 ? vec3(1.18, 0.9, 0.9) : gx == 1 ? vec3(0.9, 1.18, 0.9) : vec3(0.9, 0.9, 1.18);
+          s *= mix(vec3(1.0), grille, crt * 0.35);
+          s *= 1.0 + (hash11(fi * 0.73) - 0.5) * 0.03 * crt;      // flicker
+          if (crtOff > 0.0) {
+            // the squeezed picture glows toward white; outside it the glass is dark; the last dot fades
+            bool inPic = abs(suv.x - 0.5) <= 0.5 && abs(suv.y - 0.5) <= 0.5;
+            float hot = smoothstep(0.0, 0.5, crtOff);
+            s = inPic ? mix(s, vec3(1.0, 0.98, 0.95), hot * 0.85) : s * 0.0;
+            // the bright line (or dot) and its glow on the glass
+            float dy = abs(glass.y - 0.5), dx = max(abs(glass.x - 0.5) - offX * 0.5, 0.0);
+            float core = smoothstep(offY * 0.5 + 0.003, 0.0, dy) * smoothstep(0.004, 0.0, dx);
+            float halo = exp(-dy * 60.0) * exp(-dx * 40.0);
+            s += vec3(0.85, 0.92, 1.0) * (core * 0.8 + halo * 0.35) * hot;
+            s *= 1.0 - smoothstep(0.9, 1.0, crtOff);
+          }
+          if (crt > 0.0) {
+            // outside the curved glass: a black bezel with rounded corners
+            vec2 q = (glass - 0.5) * asp;
+            vec2 hb = 0.5 * asp - 0.004;
+            float rr = 0.06;
+            float dB = length(max(abs(q) - (hb - rr), 0.0)) - rr;
+            s *= 1.0 - smoothstep(-0.002, 0.002, dB);
+          }
+        }
+        // with a tube the Chinese overlay (subtitles) stays flat, outside the glass
+        if (zhOn > 0.5 && tube) { vec4 z = texture(zhTex, vUv); s = mix(s, toSRGB(sat(shoulder(z.rgb))), z.a); }
+        // letterbox bars (pure black, over everything)
+        if (letterbox > 0.0 && abs(vUv.y - 0.5) > 0.5 - letterbox * 0.5) s = vec3(0.0);
         fragColor = vec4(sat(s), 1.0);
       }`, {
       src: { value: null }, bloomTex: { value: null }, haloTex: { value: null }, hudTex: { value: null }, zhTex: { value: null }, zhOn: { value: 0 },
       exposure: { value: 1 }, bloom: { value: 0.5 }, halation: { value: 0.2 }, ca: { value: 1 }, grain: { value: 0.05 },
       vignette: { value: 0.3 }, hud: { value: 1 }, fade: { value: 0 }, flash: { value: 0 }, time: { value: 0 },
       zoom: { value: 1 }, invert: { value: 0 }, grade: { value: 0 }, fisheye: { value: 0 }, radial: { value: 0 }, shake: { value: new THREE.Vector2() }, res: { value: new THREE.Vector2(W, H) },
+      ...Object.fromEntries(RETRO.map((k) => [k, { value: DEFAULT_POST[k] }])),
     });
   }
 
@@ -251,6 +446,7 @@ ${SCALE === 1 ? `        float g1 = hash12(gl_FragCoord.xy + fract(time * 13.37)
     f.fisheye!.value = p.fisheye ?? 0;
     f.radial!.value = p.radial ?? 0;
     f.grade!.value = p.grade;
+    for (const k of RETRO) f[k]!.value = p[k] ?? DEFAULT_POST[k];
     (f.shake!.value as THREE.Vector2).set(p.shake[0], p.shake[1]);
     this.final.render(renderer, out);
   }
