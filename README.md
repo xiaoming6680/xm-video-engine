@@ -1,81 +1,50 @@
 <div align="center">
 
-<img src="docs/images/showcase.jpg" alt="用这套引擎做的 MV 画面：闪电劈进沙漠、俯瞰的夜城、贴地穿过闪电" width="880">
+<img src="docs/images/showreel.webp" alt="用这套引擎做的画面集锦：闪电劈进沙漠、角色从高空坠向城市、黑白版画风的深夜城市、复古字符和像素效果" width="880">
 
 # 小铭的视频基础引擎
 
 **用代码一帧一帧画出音乐视频。**
 
-画面跟着歌的节拍、段落和逐词歌词走，不用视频生成模型，也不用素材视频。<br>
-2D、3D、横版、竖版都能做，导出 4K、带运动模糊。
+<sub>上面是用它做的三支 MV 和一组效果练习，全部是代码实时画的（无声，[高清版](docs/media/showreel.mp4)）</sub>
 
-[效果演示](#效果演示) · [装环境](#装环境) · [跑起示例](#跑起示例) · [做一支自己的 MV](#做一支自己的-mv) · [写场景入门](#写场景入门) · [常见问题](#常见问题)
+[作品](#作品) · [能做什么](#能做什么) · [快速开始](#快速开始) · [做自己的 MV](#做一支自己的-mv) · [文档](#文档)
 
 </div>
 
-<sub>上图截自用这套引擎做的 MV：《Falling Again》《Still Shining》。引擎核心来自 MV《I'm Upping My P(doom)》，它的中文版见 [Zh-CN-pdoom-video](https://github.com/xiaoming6680/Zh-CN-pdoom-video)。</sub>
+## 这是什么
 
-## 它能做什么
+给它一首歌，它分析出节拍、小节、段落、每一下鼓点和每个词的起止时间；你用 TypeScript 写场景，画面就跟着音乐走。
 
-- **跟着音乐走**：自动分析歌曲的节拍、小节、段落、各声部起音（底鼓、军鼓、镲……）和能量包络，场景里随时取用
-- **逐词歌词**：歌词对齐到每个词的起止时间，唱到哪个词亮到哪个词；中英双语排版、中文逐字出现
-- **任意一帧都能单独渲染**：画面是时间的纯函数，可以随意拖动预览、并行导出，导出时自动加运动模糊
-- **2D 和 3D 都有现成模块**：手绘抽帧、纸片剧场、精灵视差、巨型字排版、油画滤镜、动画线稿；相机路径、景深、体积光、体积云海、镜头虚化、日出光束、地形、体素、碎裂和传送门转场、MMD 模型
-- **复古 / 字符 / 故障 / 像素效果**：CRT 显像管、字符画和字符粒子、数字故障和 VHS、冲击帧、万花筒、画框隧道、彩虹叠层字、环形字、音游、终端和监控面板、被 3D 镜头拍的像素世界
-- **对照参考验收**：有参考视频时，工具把原片和渲染同一时刻左右拼在一起，再比每个切点的接缝和每段的运动量，一轮轮改到单帧像、连得上、动得一样多
-- **检查和发布工具**：卡点偏差、响度、闪光频率、抖音码率下的色带；抖音版合成、封面排版
+不用视频生成模型，也不用素材视频：每一帧都是 three.js、Canvas 2D 和着色器当场画出来的。所以能卡到每一拍，任意一帧都能单独渲染和修改，导出 4K、带运动模糊。
 
-## 效果演示
+我自己是在 Claude Code 里用它做 MV 的：我讲想法和修改意见，它写场景代码、渲染静帧看图、一轮轮改。仓库里的文档和 [CLAUDE.md](CLAUDE.md) 都是为这种做法准备的。
 
-<div align="center">
+## 作品
+
+| | 风格 |
+|---|---|
+| **Falling Again** | 3D：低空掠过沙漠，云海、隧道、闪电，一镜到底 |
+| **Still Shining** | 竖版：角色从高空坠落穿过云层和城市，巨型字歌词 |
+| **暗叫** | 黑白版画风：深夜城市里没出声的人（纯音乐） |
+
+<img src="docs/images/showcase.jpg" alt="Falling Again 和 Still Shining 的画面：闪电劈进沙漠、俯瞰的夜城、贴地穿过闪电" width="880">
+
+照着两支参考视频复刻的十段效果练习，同样全部由代码生成，点图打开（33 秒，无声）：
 
 <a href="docs/media/ref-demo.mp4"><img src="docs/images/ref-demo.jpg" alt="十段复刻演示：终端字符粒子、画框隧道、威胁爆发、唱片、叠层字、音游、8-bit 体素井、万花筒、崩溃关机、像素世界" width="880"></a>
 
-<sub>点图打开演示视频（33 秒，无声）。十段都是引擎实时代码画的，没有用视频素材。</sub>
+## 能做什么
 
-</div>
+- **跟着音乐走**：节拍、小节、段落、底鼓 / 军鼓 / 镲的起音、各声部能量，场景里随时取用；段落还能自动出草稿
+- **逐词歌词**：唱到哪个词亮到哪个词，中英双语排版
+- **2D 和 3D 现成模块**：手绘抽帧、纸片剧场、巨型字、油画滤镜；相机路径、景深、体积光、云海、地形、体素、碎裂和传送门转场、MMD 角色
+- **复古 / 字符 / 故障 / 像素**：CRT、字符画、VHS、冲击帧、万花筒、音游界面、被 3D 镜头拍的像素世界
+- **检查和发布**：卡点偏差、响度、闪光、接缝检查、对照参考视频；抖音版合成、封面排版
 
-这十段是照着两支参考视频逐帧复刻的练习：每段先量原片的颜色、比例和时间点，再把原片和渲染同一时刻左右拼在一起，改 2–5 轮到并排看接近。源码在 `app/src/scenes/ref_*.ts`，预览打开 `/?ref=<名>`，做法写在 [复刻配方](docs/复刻配方.md)。之后的作品，这类效果都以这十段为下限。
+## 快速开始
 
-| 名 | 内容 | 名 | 内容 |
-|---|---|---|---|
-| `boot` | 终端日志 → 几千个字符炸开 → 落成字符脸 | `rhythm` | 音游：山脊跑道、判定牌、连击 |
-| `droste` | 一张张花边画框叠成隧道 → 光速 | `invader` | 8-bit 射击 → 体素方块井 → 炸开 |
-| `glitch` | 三色圆环、套色大脸、纸屑风暴里的彩虹卡片盒 | `kaleido` | 从徽章边缘长出的万花筒环 |
-| `record` | 唱片：切线排字、半调点环、BOOM | `crash` | @ 字格显像管 → 信号衰减 → 蓝屏 → 关机 |
-| `stack` | 彩虹叠层挤出字 + 终端弹窗 | `stage` | 像素世界被 3D 镜头拍、冲击帧、VHS 倒带 |
-
-## 它是怎么工作的
-
-```mermaid
-flowchart LR
-    A["歌曲<br>audio/song.wav"] --> B["analysis/<br>节拍 · 声部 · 歌词对齐"]
-    B --> C["data/<br>audio.json · events.json · lyrics.json"]
-    C --> D["场景 render(t)<br>three.js · Canvas 2D · 着色器"]
-    D --> E["无头浏览器<br>逐帧渲染 + 运动模糊"]
-    E --> F["ffmpeg<br>成片 MP4（BT.709）"]
-```
-
-每个场景是一个 TypeScript 类，负责歌里的一段时间。引擎给它当前时刻的节拍、鼓点和歌词，它把这一帧画出来。
-
-做一支 MV 就是：准备歌 → 跑分析脚本 → 写场景、排时间线 → 预览 → 导出。下面按这个顺序走一遍。做正式作品时中间加三个检查点（节拍校验片、方向样片、全片粗分镜），见 [新项目流程](docs/新项目流程.md)：先粗后细，能少推翻很多次。
-
-## 装环境
-
-| 软件 | 用来 | 什么时候需要 |
-|---|---|---|
-| [bun](https://bun.sh)、Node.js | 预览服务器、渲染脚本 | 一直需要 |
-| Microsoft Edge 或 Chrome | 无头浏览器逐帧渲染 | 渲染静帧、导出视频 |
-| [ffmpeg](https://ffmpeg.org)（带 libx264） | 编码成 MP4 | 导出视频 |
-| Python 3 和下面这些包 | 分析歌曲、对齐歌词、检查和发布工具 | 用自己的歌时 |
-
-```bash
-pip install numpy scipy librosa soundfile torch torchaudio audio-separator opencv-python Pillow fonttools
-```
-
-人声分离模型约 400 MB，第一次运行时自动下载，之后所有项目共用这一份。只想先看看示例的话，Python 可以先不装。
-
-## 跑起示例
+需要 [bun](https://bun.sh)、Edge 或 Chrome（渲染用）、[ffmpeg](https://ffmpeg.org)（导出视频用）。只看示例的话，Python 先不用装。
 
 ```bash
 git clone https://github.com/xiaoming6680/xm-video-engine.git
@@ -84,250 +53,54 @@ bun install
 bunx vite
 ```
 
-打开终端打印的地址（通常是 <http://localhost:5173>）。仓库自带一首合成的测试曲和两段示例画面：先是跟着小节落下的方块和逐词高亮的歌词（2D），后面是立在低多边形沙丘上的体素字（3D）。
+打开终端打印的地址（通常是 <http://localhost:5173>），空格播放。仓库自带一首合成的测试曲和两段示例：跟着小节落下的方块和逐词高亮的歌词，后面是立在沙丘上的体素字。加 `/?ref=boot` 看上面十段效果里的一段。
 
-<img src="docs/images/demo.jpg" alt="示例场景：跟着小节落下的方块和逐词高亮的歌词，后半段是体素字立在低多边形沙丘上" width="720">
+<img src="docs/images/demo.jpg" alt="示例场景：跟着小节落下的方块和逐词高亮的歌词" width="640">
 
-| 按键 | 作用 |
-|---|---|
-| 空格 | 播放 / 暂停 |
-| ← / → | 后退 / 前进 1 秒，按住 Shift 是 5 秒 |
-| `,` / `.` | 逐帧后退 / 前进 |
-| `[` / `]` | 跳到上一个 / 下一个场景 |
-| `l` | 循环当前场景 |
-| `h` | 隐藏界面 |
-
-网址加 `?t=12` 从第 12 秒开始；打开 `/?sky` 是天空示例（云海、空气光点、日出光束、镜头虚化），`/?ref=boot`（或 droste、glitch、record、stack、rhythm、invader、kaleido、crash、stage）是上面[效果演示](#效果演示)的十段。
-
-再试试渲染（在 `app/` 里运行）：
+导出一段视频（在 `app/` 里）：
 
 ```bash
-bun scripts/render.ts stills --t 3.1,12 --out ../out/stills     # 两张静帧 PNG
-bun scripts/render-par.ts --samples auto --out ../out/demo.mp4  # 整段视频：多进程并行，带运动模糊
+bun scripts/render-par.ts --samples auto --out ../out/demo.mp4
 ```
 
 ## 做一支自己的 MV
 
-### 1. 建项目
+```bash
+python tools/new_project.py ../我的新MV     # 1. 建项目（竖版加 --vertical）
+```
 
-在引擎目录运行：
+2. 歌放成 `audio/song.wav`，跑 `analysis/` 里的脚本：分离人声、分析节拍和段落、对齐歌词
+3. 在 `docs/TREATMENT.md` 写方向，先做 10–15 秒带声音的样片
+4. 在 `app/src/scenes/` 写场景，在 `app/src/timeline.ts` 排时间线
+5. 预览、检查、导出 4K，合成抖音版
+
+用自己的歌要装 Python 依赖：
 
 ```bash
-python tools/new_project.py ../我的新MV   # 竖版（抖音）加 --vertical
-cd ../我的新MV/app && bun install
+pip install numpy scipy librosa soundfile torch torchaudio audio-separator opencv-python Pillow fonttools
 ```
 
-新项目是引擎、分析脚本和工具的一份独立拷贝，随便改都不影响基础引擎。项目设置集中在 `app/src/config.ts`：画布尺寸、视频在歌里的起止、输出文件名。
-
-### 2. 放歌，生成节拍和歌词数据
-
-把歌转成 `audio/song.wav`（44.1 kHz），在项目根目录依次运行：
-
-```bash
-python analysis/separate.py vocals   # 分出人声和伴奏
-python analysis/separate.py demucs   # 分出鼓、贝斯、其他、人声四轨
-python analysis/analyze.py --bars    # 打印每小节的特征表，照着它在 analyze.py 开头填 SECTION_BARS（前奏、主歌、副歌……）
-python analysis/analyze.py           # → data/audio.json：节拍、强拍、段落、能量包络
-python analysis/ctc_align.py         # → data/lyrics.json：每个词的起止时间
-python analysis/events.py --bars     # → data/events.json：底鼓、军鼓、镲……每一下的时间；对着表听，不准就调阈值
-```
-
-歌词对齐要先准备 `data/lyrics.src.lrc`：带逐行时间的 LRC 歌词，行时间大致准就行。FLAC 里内嵌了歌词的话可以直接导出：
-
-```bash
-ffprobe -v quiet -show_entries format_tags=LYRICS -of default=nw=1:nk=1 歌.flac > data/lyrics.src.lrc
-```
-
-- 逐词对齐目前只支持英文歌词；和英文行同一时间戳的中文行会作为译文一起保存，排双语歌词用
-- AI 生成的歌（人声卡得很准）再跑一次 `python analysis/snap_words.py`，把词吸附到 16 分音符格上
-- `events.py` 排在歌词对齐之后：它找人声切片时要避开唱词，歌词时间改过就重跑一次
-- 纯音乐跳过歌词这一步，引擎没有歌词文件也能跑
-- 跑完用 `cd app && bun scripts/render.ts info` 看一眼：时间线和每行歌词的时间、字数
-
-### 3. 定方向
-
-在 `docs/TREATMENT.md`（建项目时从模板生成）里写下一句话概念、色彩和分镜表。光有文字和静帧还不够：每个候选方向做一段 10–15 秒、带声音的真实代码样片，选定后再把整首歌粗排一遍（色块占位，运镜和切点是真的）看结构，最后才精做。可以借鉴的做法见 [制作方法](docs/方法.md)。
-
-### 4. 写场景，排时间线
-
-在 `app/src/scenes/` 写自己的场景（写法见[下一节](#写场景入门)），删掉示例 `demo*.ts`，然后在 `app/src/timeline.ts` 安排每个场景占哪段时间：
-
-```ts
-return [
-  E('intro', 'pulse', 0, au.timeOfBar(8)),            // 场景 id、场景文件名、开始、结束（歌曲秒）
-  E('drop',  'city',  au.timeOfBar(8), au.duration),  // 8 小节后在强拍上硬切到下一个场景
-];
-```
-
-首尾相接就是硬切，时间重叠就自动交叉淡化。时间尽量从数据里算（第几小节、某句歌词的开头），少写死秒数。
-
-场景里写了中文、或者歌词带中文译文，在项目根目录跑一次 `python analysis/make_fonts_zh.py`：中文字体只保留用到的字，新加的字要重新裁进去才显示得对。
-
-### 5. 预览、检查、导出
-
-```bash
-cd app
-bunx vite                                              # 边改边看，保存就刷新
-bun scripts/render.ts stills --t 12.5,13 --only drop   # 只渲染某个场景的几帧，放大细看
-bun scripts/render.ts beatcheck                        # 节拍校验片：小节号、段落、鼓点配原曲，确认分析对不对
-bun scripts/render.ts animatic                         # 全片粗分镜：快速渲染，左上角标小节号和镜头 id
-bun scripts/render-par.ts --samples auto --max-samples 36 --shutter 0.5 --out ../out/draft/v1.mp4   # 草稿
-bun scripts/render-par.ts --samples auto --scale 2 --out ../out/final.mp4                           # 4K 成片
-```
-
-导出后回到项目根目录检查：
-
-```bash
-python tools/qa/review.py out/draft/v1.mp4        # 联系表和运动量曲线：整片有没有起伏
-python tools/qa/check_video.py out/draft/v1.mp4   # 响度、真峰值、音画偏移、闪光（3×3 分区）、空帧、色彩标签
-python tools/qa/seams.py out/draft/v1.mp4         # 每个切点前后的主体位置、运动、亮度、色调、声音
-```
-
-每轮预览对照 [质量验收清单](docs/质量验收.md) 过一遍。
-
-### 6. 发布
-
-- 抖音版（选段、锐化、淡出）：`python tools/douyin_mux.py out/final.mp4 audio/song.wav -o out/抖音版.mp4`
-- 封面（抖音 4:3 / 3:4，B 站 16:9）：`python tools/cover_title.py <4K 静帧> --line1 标题 --line2 副标题 --tag 歌名 --by 作者`
-
-每一步的细节和坑见 [新项目流程](docs/新项目流程.md)。
-
-## 写场景入门
-
-一个场景就是 `app/src/scenes/` 里的一个文件，默认导出一个继承 `Scene` 的类。引擎每一帧调用一次 `render(f, out)`：
-
-```ts
-import type * as THREE from 'three';
-import { Scene, type Frame } from '../engine/scene';
-import { FSPass, Layer2D, W, H } from '../engine/gl';
-import { F, font } from '../engine/type';
-import { rgba } from '../engine/palette';
-
-export default class Pulse extends Scene {
-  // 全屏着色器当背景：底鼓一响，画面亮一下
-  bg = new FSPass(`uniform float kick;
-    void main() { fragColor = vec4(mix(C_INK, C_SIGNAL, kick * 0.5), 1.0); }`, { kick: { value: 0 } });
-  text = new Layer2D();   // 一层 Canvas 2D，用来写字
-
-  render(f: Frame, out: THREE.WebGLRenderTarget) {
-    const { renderer, comp, lyrics } = this.ctx;
-    this.bg.u.kick!.value = f.a.kick;
-    this.bg.render(renderer, out);
-
-    // 正在唱的这一句，写在画面下方
-    const c = this.text.ctx;
-    this.text.clear();
-    const line = lyrics.lineAt(f.t);
-    if (line) {
-      c.font = font(F.archivo(100, 700), 64);
-      c.fillStyle = rgba('bone');
-      c.fillText(line.text, W * 0.08, H * 0.8);
-    }
-    comp.draw(renderer, this.text.upload(), out);   // 文字叠到背景上
-  }
-}
-```
-
-场景里能拿到的东西：
-
-| 写法 | 是什么 |
-|---|---|
-| `f.t` | 当前时间（歌曲秒） |
-| `f.beat`、`f.bar` | 第几拍、第几小节（连续值） |
-| `f.beatPhase`、`f.barPhase` | 这一拍、这一小节走了多少，0 → 1 |
-| `f.a.kick`、`f.a.snare`、`f.a.hat` | 底鼓、军鼓、镲：刚响时为 1，随后很快衰减 |
-| `f.a.rms`、`f.a.low`、`f.a.vocal`、`f.a.drums`…… | 整体、低频、人声、鼓的能量，0 → 1 |
-| `f.lt`、`f.p` | 这个场景内部的时间、进度 0 → 1 |
-| `this.ctx.lyrics` | 歌词：`lineAt(t)` 当前这句，`Lyrics.wordProgress(词, t)` 这个词唱了多少 |
-| `this.ctx.audio` | 节拍表：`timeOfBar(k)`、`downbeats`、`nearestBeat(t)`、`events('kick', t0, t1)` |
-
-三条规矩：
-
-1. **画面只取决于 `f.t`**。随机数要带种子（`mulberry32(seed)`），不用 `Math.random()`、`Date.now()`。导出时每帧要按任意顺序渲染许多子帧来做运动模糊，依赖调用顺序的代码会出错
-2. **颜色是线性 HDR**。超过约 0.85 会泛光；用调色板里的颜色（着色器里 `C_INK`、`C_SIGNAL`，Canvas 里 `rgba('signal')`），整片换色只改 `engine/palette.ts`
-3. **逐帧闪烁用 `frameIdx(t)`**，不用 `Math.floor(t * 60)`，否则导出时会叠出重影
-
-3D 场景、转场、后期参数、4K 适配、排版细节见 [引擎指南](docs/引擎指南.md)。
-
-## 想要某种效果，去哪找
-
-路径相对 `app/src/`，每个文件开头都写了用途和用法：
-
-| 想做 | 用 |
-|---|---|
-| 3D 运镜、卡在拍子上的镜头 | `engine/world.ts`（`CamPath`、`ShotRig`） |
-| 景深、体积光、把 3D 画成线稿 | `engine/kit3d.ts`、`kit/npr.ts` |
-| 贴地高速飞行、一镜到底穿越 | `kit/fpv.ts` |
-| 云海、日出光束、镜头虚化 | `kit/clouds.ts`、`kit/sunrays.ts`、`kit/bokeh.ts` |
-| 地形、体素方块世界 | `engine/terrain.ts`、`engine/voxel.ts` |
-| 碎裂、传送门转场 | `engine/shards.ts`、`engine/portal.ts` |
-| 手绘抽帧、漫画速度线 | `kit/tegaki.ts` |
-| 油画质感 | `kit/paint.ts` |
-| 2D 插画拆层做视差 | `engine/sprite.ts` |
-| 双语歌词排版、字幕条 | `kit/lyrics-kit.ts`、`kit/subs.ts` |
-| 巨型字、逐词砸字 | `kit/typo.ts` |
-| CRT 显像管、故障、VHS、冲击帧、像素化、遮幅 | `engine/post.ts` 的后期参数（`crt`、`glitch`、`vhs`、`bw`、`pixel`……） |
-| 字符画、字符粒子 | `engine/ascii.ts`、`kit/glyphfield.ts` |
-| 万花筒、无限缩放、虹膜转场 | `engine/warp.ts` |
-| 环形字、彩虹叠层字、贴纸字、裂纹字 | `kit/textfx.ts` |
-| 音游跑道、终端 / 面板 / 计数器这类界面 | `kit/rhythm.ts`、`kit/termhud.ts` |
-| 被 3D 镜头拍的像素世界 | `kit/pixelstage.ts` |
-
-完整列表见 [模块目录](docs/模块目录.md)。这些模块单独用达不到演示的水准，同类镜头先看 `scenes/ref_*.ts` 的完整写法（[复刻配方](docs/复刻配方.md)）。水彩、水墨这类还没收进引擎的效果，在 `third_party/` 有参考代码。
-
-## 用 AI 编程助手来做
-
-我自己是在 Claude Code 里用这套引擎做 MV 的：我讲想法、听感和修改意见，它写场景代码、渲染静帧自己看图、一轮轮改。仓库里的 [CLAUDE.md](CLAUDE.md) 就是写给它的规矩。几条经验：
-
-- 开工前让它读 [新项目流程](docs/新项目流程.md) 和 [引擎指南](docs/引擎指南.md)。新项目里不带这些文档，告诉它基础引擎在哪个目录就行
-- 先让它写 `docs/TREATMENT.md`；方向样片和全片粗分镜这两步让它停下来给你看，确认过的东西记进 TREATMENT 的「已锁定」，别一上来就让它“直接做完”
-- 每改一轮都让它渲染静帧、亲眼看图，再按 [质量验收](docs/质量验收.md) 自查；有参考图时用 `tools/compare.py` 左右对照
-- 给了参考视频、说“要这种效果”时，让它按 [复刻配方](docs/复刻配方.md) 第五节对照：单帧像（`tools/refmatch.py sheet`）、连贯（`tools/qa/seams.py`，带音乐从头连着看）、运动量接近（`refmatch.py motion`）三样都过才算做完；只做到“效果有了”，或单帧像但拼起来不连贯，都远不如参考
-- 别把整首歌词贴进对话：脚本只按行号和时间处理歌词，AI 大段照抄歌词可能会被内容过滤拦下
-
-## 常见问题
-
-**预览打开的是别的项目？** 5173 端口被占用时 Vite 会换端口，以终端打印的地址为准。渲染脚本每次自己起一个私有服务器，不受影响。
-
-**没有 Edge，或者在 macOS / Linux 上？** 渲染脚本默认驱动 Edge，用 Chrome 就在命令后面加 `--channel chrome`。
-
-**提示找不到 ffmpeg？** 把它加到 PATH，或者设环境变量 `FFMPEG` 指向 ffmpeg 可执行文件。
-
-**导出太慢？** `render-par.ts` 用 `--workers` 设同时开几个浏览器（默认 6），按 CPU 核数调；草稿用 `--max-samples 36`，1080p 看效果，最后再出 4K。
-
-**中文歌能逐词对齐吗？** 暂时不能，对齐模型只认英文字母。
-
-**改了基础引擎，已经建好的项目会跟着变吗？** 不会。每个项目是独立拷贝，需要时手动把改动同步过去。
+每一步的命令见 [使用指南](docs/使用指南.md)，完整流程和检查点见 [新项目流程](docs/新项目流程.md)。
 
 ## 文档
 
 | 文档 | 讲什么 |
 |---|---|
-| [新项目流程](docs/新项目流程.md) | 从一首歌到发布的完整步骤 |
+| [使用指南](docs/使用指南.md) | 按键、做 MV 的每条命令、写场景入门、效果在哪、常见问题 |
+| [新项目流程](docs/新项目流程.md) | 从一首歌到发布的完整步骤和检查点 |
 | [引擎指南](docs/引擎指南.md) | 写场景：API、确定性、运动模糊、4K、排版 |
 | [模块目录](docs/模块目录.md) | 全部 2D / 3D 模块和 Python 工具 |
+| [复刻配方](docs/复刻配方.md) | 复古 / 字符 / 故障 / 像素效果，十段复刻示例，对照验收方法 |
 | [质量验收](docs/质量验收.md) | 每轮预览查什么 |
-| [TREATMENT 模板](docs/TREATMENT模板.md) | 创意方案模板 |
-| [制作方法](docs/方法.md) | 按参考图复刻、素材来源、字体、导演手法 |
-| [复刻配方](docs/复刻配方.md) | 复古 / 字符 / 故障 / 像素效果的模块、十段复刻示例、对照验收方法（单帧像 + 连贯 + 运动量接近） |
-| [第三方参考](third_party/README.md) | 笔刷、角色骨骼、43 种画风说明 |
-
-## 目录
-
-| 目录 | 内容 |
-|---|---|
-| `app/` | 引擎（TypeScript + three.js，bun + Vite）。`src/config.ts` 项目设置，`src/engine/` 核心和模块，`src/kit/` 场景级辅助，`src/scenes/` 场景，`scripts/` 渲染脚本 |
-| `analysis/` | 人声分离、节拍分析、声音事件、歌词对齐（Python） |
-| `tools/` | 新建项目、质检、对照（含逐帧复刻 `refmatch.py`）、生图、素材处理、抖音合成、封面 |
-| `docs/` | 上面列的文档 |
-| `third_party/` | 5 个开源动画工程的参考代码 |
+| [制作方法](docs/方法.md)、[TREATMENT 模板](docs/TREATMENT模板.md) | 导演手法、素材、创意方案 |
+| [模型选型](docs/模型选型.md) | 分析 / 抠图 / 深度用哪个模型、为什么、许可证 |
 
 ## 致谢
 
-- 引擎核心来自 [mexicat/pdoom-video](https://github.com/mexicat/pdoom-video)（Giacomo Magnanini，MIT），即 MV《I'm Upping My P(doom)》的渲染引擎
-- [效果演示](#效果演示)照着两支作品的画面手法复刻：B 站视频《当 (•ω•) 被运行之后……》（标注为 Claude Opus 5.5 代码生成）和 [guiguisocute/bad-time-mv](https://github.com/guiguisocute/bad-time-mv)。代码都是重写的，演示视频里没有它们的画面素材和音乐，界面文字也换成了自己的；`stage` 一段只借了手法，内容是自己的
+- 引擎核心来自 [mexicat/pdoom-video](https://github.com/mexicat/pdoom-video)（Giacomo Magnanini，MIT），MV《I'm Upping My P(doom)》的渲染引擎；中文版见 [Zh-CN-pdoom-video](https://github.com/xiaoming6680/Zh-CN-pdoom-video)
+- 十段效果练习照着 B 站视频《当 (•ω•) 被运行之后……》和 [guiguisocute/bad-time-mv](https://github.com/guiguisocute/bad-time-mv) 的画面手法复刻，代码都是重写的，没有用它们的画面素材和音乐
 - `third_party/` 收录了 [Lemo-Opuscar](https://github.com/lemomo-ai/lemo-opuscar)、[Papermotion](https://github.com/francozanardi/papermotion)、[claude-animation-skill](https://github.com/buildwithhanif/claude-animation-skill)、[Clearwater](https://github.com/Aureliengmz/clearwater)、[ClaudeAnimationBase](https://github.com/JohnHeibel/ClaudeAnimationBase) 的代码（均为 MIT）
 
 ## 许可
 
-代码按 [MIT](LICENSE) 发布。`third_party/` 里的代码保留各自的许可（都是 MIT）。`app/public/fonts/` 里的字体保留各自的开源许可：Archivo、IBM Plex Mono、Cormorant Garamond、Noto Sans/Serif SC、Press Start 2P、EMS 单线字体为 OFL，Hershey 单线字体为 OFL / 公有领域。`audio/`、`data/` 里是脚本合成的测试曲，不含任何歌曲。
+代码按 [MIT](LICENSE) 发布；`third_party/` 保留各自的许可（都是 MIT）。`app/public/fonts/` 里的字体为 OFL（Hershey 单线字体为 OFL / 公有领域）。`audio/`、`data/` 里是脚本合成的测试曲，不含任何歌曲。集锦里的 MV 画面是作者自己的作品，不含歌曲音频。
