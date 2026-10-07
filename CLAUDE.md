@@ -13,11 +13,12 @@
 | 做 CRT / 字符画 / 故障 / 像素 / 音游 / HUD 这类效果，或复刻参考片的镜头 | `docs/复刻配方.md`（第四节十段 `?ref` 是单帧的质量标准，第五节是方法：单帧像 + 连贯 + 运动量接近） |
 | 每轮预览验收 | `docs/质量验收.md` |
 | 第三方笔刷、角色骨骼、画风说明 | `third_party/README.md` |
+| 换分析 / 抠图 / 深度模型，查许可证 | `docs/模型选型.md`（不比现有的好就不换） |
 
 ## 结构
 
 - `app/`：引擎（TypeScript + three.js，bun + Vite）。`src/config.ts` 是项目设置，`src/engine/` 核心和 2D/3D 模块，`src/kit/` 场景级辅助，`src/scenes/` 示例场景，`scripts/` 渲染脚本
-- `analysis/`：音频分析和歌词对齐（Python）。分离模型共用 `analysis/models/`（约 400 MB，不进 git）
+- `analysis/`：音频分析和歌词对齐（Python）。分离模型共用 `analysis/models/`（约 400 MB，不进 git）；段落草稿 `structure.py` 用 `analysis/models/songformer/` 里的独立环境（`setup_structure.py` 装，约 6 GB）。各环节选哪个模型、试过哪些没换、许可证：`docs/模型选型.md`
 - `tools/`：质检、对照、Codex 生图、素材处理、抖音合成、封面、建新项目
 - `third_party/`：5 个 MIT 开源工程的参考代码，未改写进引擎
 - `audio/`、`data/`：`tools/make_test_song.py` 生成的测试曲和数据，用来自测

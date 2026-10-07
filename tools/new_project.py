@@ -2,7 +2,7 @@
 
   python tools/new_project.py ../我的新MV [--vertical]
 
-复制：app/（不含 node_modules）、analysis/（不含 models、work）、tools/、docs/ 里的模板和清单、LICENSE（→ LICENSE.engine）；
+复制：app/（不含 node_modules）、analysis/（不含 models、work、setup_structure.py；分离模型和 SongFormer 环境共用基础引擎的）、tools/、docs/ 里的模板和清单、LICENSE（→ LICENSE.engine）；
 建好 audio/ data/ assets/ out/ refs/；docs/TREATMENT.md 从模板来；写一份项目的 CLAUDE.md（流程和质量下限，指回基础引擎的文档）；
 参考视频放 refs/，.gitignore 让它们不进仓库；--vertical 把 config.ts 改成 1080×1920。
 目标目录已存在且不是空的就停下，不覆盖任何东西。之后：
@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
-SKIP = shutil.ignore_patterns("node_modules", "__pycache__", "models", "work", "*.log", "_codex")
+SKIP = shutil.ignore_patterns("node_modules", "__pycache__", "models", "work", "*.log", "_codex",
+                              "setup_structure.py")  # installs into the base engine only (shared)
 
 
 def main() -> None:
@@ -48,6 +49,11 @@ def main() -> None:
     s = sep.read_text(encoding="utf-8")
     s = re.sub(r"^SHARED = .*$", f"SHARED = {str((BASE / 'analysis' / 'models').as_posix())!r}", s, count=1, flags=re.M)
     sep.write_text(s, encoding="utf-8")
+    # structure analysis: same, for the SongFormer environment (analysis/setup_structure.py in the base engine)
+    st = dst / "analysis" / "structure.py"
+    s = st.read_text(encoding="utf-8")
+    s = re.sub(r"^SHARED = .*$", f"SHARED = {str((BASE / 'analysis' / 'models' / 'songformer').as_posix())!r}", s, count=1, flags=re.M)
+    st.write_text(s, encoding="utf-8")
 
     cfg = dst / "app" / "src" / "config.ts"
     if a.vertical:
