@@ -49,11 +49,19 @@ async function ensureServer(): Promise<{ url: string; stop: () => void }> {
   // share this engine), so by default every run starts its own server for this app.
   const url = opt('url');
   if (url) { if (await reachable(url)) return { url, stop: () => {} }; throw new Error(`--url ${url} is not reachable`); }
-  const port = 5300 + Math.floor(Math.random() * 500);
+  // a port nobody answers on: with --strictPort a taken port makes our vite exit, and the run would then render
+  // whichever project's server holds that port (it happened with other projects' renders running)
+  let port = 0;
+  for (let i = 0; i < 40 && !port; i++) { const p = 5300 + Math.floor(Math.random() * 500); if (!(await reachable(`http://localhost:${p}`))) port = p; }
+  if (!port) throw new Error('no free port in 5300-5799 for the render server');
   // no live reload: a file saved mid-render must not reload the page
   const proc = Bun.spawn(['bunx', 'vite', '--port', String(port), '--strictPort'], { cwd: APP, stdout: 'ignore', stderr: 'ignore', env: { ...process.env, PDOOM_NO_HMR: '1' } });
   const u = `http://localhost:${port}`;
-  for (let i = 0; i < 100 && !(await reachable(u)); i++) await Bun.sleep(100);
+  for (let i = 0; i < 100 && !(await reachable(u)); i++) {
+    if (proc.exitCode !== null) throw new Error(`the render server (vite on ${port}) exited before answering: port taken? rerun`);
+    await Bun.sleep(100);
+  }
+  if (proc.exitCode !== null) throw new Error(`the render server (vite on ${port}) is not ours: it exited, another server answers there; rerun`);
   // (bunx starts vite as a child: kill the whole tree, or every run leaves a vite behind — 118 had piled up and starved
   // the renders of memory)
   const stop = () => { if (process.platform === 'win32') Bun.spawnSync(['taskkill', '/PID', String(proc.pid), '/T', '/F']); proc.kill(); };
