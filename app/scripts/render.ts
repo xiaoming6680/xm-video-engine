@@ -6,6 +6,10 @@
 //   video:   bun scripts/render.ts video [--from 105] [--to 204.11] [--fps 60] [--crf 16] [--samples 1] [--shutter 0.5] [--out ../out/film.mp4] [--noaudio] [--af <ffmpeg audio filters>]
 //            --samples N averages N sub-frames per frame over shutter×(1/fps): motion blur + temporal AA;
 //            --samples auto picks the count per frame (4, 12, 36, 108 or 324, see Engine.render)
+//   beatcheck: bun scripts/render.ts beatcheck [--out ../out/check/beatcheck.mp4]   (the song over the analysis: bars,
+//            beats, sections, sound events, lyric lines by number; docs/新项目流程.md step 1. 30 fps, fast encode)
+//   animatic:  bun scripts/render.ts animatic [--from] [--to] [--out ../out/animatic/animatic.mp4]   (the timeline with a
+//            slate on every frame: bar "06/63", shot id, section, beats; step 3. 30 fps, 1 sample, fast encode)
 //   info:    bun scripts/render.ts info   (the timeline and every lyric line: index, times, length — never the text)
 //   scan:    bun scripts/render.ts scan [--from 0] [--to <end>] [--step 0.1]   (renders without saving; prints the scenes' warnings)
 //   cues:    bun scripts/render.ts cues [--out ../out/qa/cues.json]   (scenes' cues + cuts, for tools/qa/cuecheck.py)
@@ -82,7 +86,8 @@ async function openPage(url: string) {
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`[${m.type()}] ${m.text()}`); });
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   const only = opt('only');
-  await page.goto(`${url}/?export=1${only ? `&only=${only}` : ''}${SCALE !== 1 ? `&scale=${SCALE}` : ''}${opt('query') ? `&${opt('query')}` : ''}`);
+  const modeQ = mode === 'beatcheck' ? '&beatcheck=1' : mode === 'animatic' ? '&animatic=1' : '';
+  await page.goto(`${url}/?export=1${modeQ}${only ? `&only=${only}` : ''}${SCALE !== 1 ? `&scale=${SCALE}` : ''}${opt('query') ? `&${opt('query')}` : ''}`);
   await page.waitForFunction(() => (window as any).__pdoom?.ready || (window as any).__pdoom?.error, null, { timeout: 120000 });
   const err = await page.evaluate(() => (window as any).__pdoom.error);
   if (err) throw new Error(`app failed to boot:\n${err}\n${logs.join('\n')}`);
@@ -134,14 +139,16 @@ async function sheet(page: Page, times: number[], cols: number, out: string) {
 
 async function video(page: Page, from: number, to: number, fps: number, out: string) {
   mkdirSync(path.dirname(out), { recursive: true });
-  const crf = opt('crf', '16')!;
+  // the review films (beatcheck, animatic) only have to be watchable: a fast encode
+  const quick = mode === 'beatcheck' || mode === 'animatic';
+  const crf = opt('crf', quick ? '23' : '16')!;
   const audio = path.join(ROOT, config.AUDIO);
   const args = [FFMPEG, '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${OW}x${OH}`, '-r', String(fps), '-i', 'pipe:0'];
   if (!flag('noaudio')) args.push('-ss', String(from), '-t', String(to - from), '-i', audio);
   // Frames are sRGB (toSRGB in the final pass): convert with the BT.709 matrix and tag the stream, otherwise ffmpeg
   // converts with BT.601 while players and platforms decode untagged HD as BT.709 and every colour shifts
   // (upstream pdoom-video 6e7aa9f / bdbad53). setparams: the -color_* output flags don't reach the stream.
-  args.push('-vf', 'vflip,scale=out_color_matrix=bt709,setparams=color_primaries=bt709:color_trc=bt709', '-c:v', 'libx264', '-preset', opt('preset', 'slow')!, '-crf', crf, '-pix_fmt', 'yuv420p', '-tune', 'grain', '-x264-params', opt('x264', 'aq-mode=3')!);
+  args.push('-vf', 'vflip,scale=out_color_matrix=bt709,setparams=color_primaries=bt709:color_trc=bt709', '-c:v', 'libx264', '-preset', opt('preset', quick ? 'veryfast' : 'slow')!, '-crf', crf, '-pix_fmt', 'yuv420p', ...(quick ? [] : ['-tune', 'grain']), '-x264-params', opt('x264', 'aq-mode=3')!);
   // audio filters: --af, else src/config.ts AUDIO_FILTER, else none (a hot master: see the AUDIO_FILTER example)
   const af = opt('af', config.AUDIO_FILTER ?? '')!;
   if (!flag('noaudio')) args.push(...(af ? ['-af', af] : []), '-c:a', 'aac', '-b:a', '320k', '-shortest');
@@ -251,7 +258,11 @@ try {
   } else if (mode === 'video') {
     const dur: number = await page.evaluate(() => (window as any).__pdoom.duration);
     await video(page, +opt('from', String(VIDEO_START))!, +opt('to', String(Math.min(dur, VIDEO_END)))!, +opt('fps', '60')!, path.resolve(opt('out', path.join(ROOT, config.OUT))!));
-  }
+  } else if (mode === 'beatcheck' || mode === 'animatic') {
+    const dur: number = await page.evaluate(() => (window as any).__pdoom.duration);
+    const def = mode === 'beatcheck' ? 'out/check/beatcheck.mp4' : 'out/animatic/animatic.mp4';
+    await video(page, +opt('from', String(VIDEO_START))!, +opt('to', String(Math.min(dur, VIDEO_END)))!, +opt('fps', '30')!, path.resolve(opt('out', path.join(ROOT, def))!));
+  } else throw new Error(`unknown mode '${mode}'`);
   if (logs.length) console.error('BROWSER LOG:\n' + logs.slice(0, 40).join('\n'));
 } finally {
   await browser.close();

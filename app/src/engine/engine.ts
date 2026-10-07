@@ -79,6 +79,8 @@ export class Engine {
   errors: string[] = [];
   /** Suppress the HUD (the corner credit) — used for stills and covers. */
   hudOff = false;
+  /** Draw the animatic slate (?animatic): bar number, shot id, section and beat squares in a corner. */
+  slate = false;
 
   timeline: TimelineEntry[] = [];
 
@@ -138,7 +140,13 @@ export class Engine {
 
   async init(only?: (e: TimelineEntry) => boolean) {
     [this.audio, this.lyrics] = await Promise.all([AudioData.load(), Lyrics.load(), loadFonts(), loadStrokeFonts()]) as [AudioData, Lyrics, void, void];
-    this.timeline = this.makeTimeline(this.lyrics, this.audio);
+    // ?beatcheck: the beat-check film instead of the project's timeline (docs/新项目流程.md step 1);
+    // ?animatic: the project's timeline with a slate (bar number, shot id, section) on every frame (step 3)
+    const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+    this.timeline = q?.has('beatcheck')
+      ? [{ id: 'beatcheck', load: () => import('./beatcheck'), start: 0, end: this.audio.duration }]
+      : this.makeTimeline(this.lyrics, this.audio);
+    this.slate = !!q?.has('animatic');
     this.ctx = { renderer: this.renderer, audio: this.audio, lyrics: this.lyrics, comp: this.comp, W, H, id: '', params: {}, start: 0, end: 0 };
     this.post = new Post();
     this.hud = new Hud();
@@ -275,7 +283,7 @@ export class Engine {
       outTex = this.avgRT.texture;
     }
     this.lastSamples = n;
-    const hudTex = this.hud.draw(t, { opacity: this.hudOff ? 0 : post.hud, watermark: post.watermark, paper: post.paper });
+    const hudTex = this.hud.draw(t, { opacity: this.hudOff ? 0 : post.hud, watermark: post.watermark, paper: post.paper, slate: this.slate ? this.slateAt(t) : null });
     this.post.render(r, outTex, hudTex, this.finalRT, post, t);
     this.lastPost = post;
     if (toScreen) {
@@ -363,6 +371,17 @@ export class Engine {
 
     if (!outTex) { clearRT(r, this.rts[0]!, [0, 0, 0]); outTex = this.rts[0]!.texture; }
     return { outTex, post };
+  }
+
+  /** What the animatic slate shows at t. */
+  private slateAt(t: number) {
+    const bar = this.audio.barAt(t), bars = Math.max(1, Math.round(this.audio.barAt(this.duration)));
+    const on = this.timeline.filter((e) => t >= e.start && t < e.end);
+    return {
+      bar: `${String(Math.floor(bar) + 1).padStart(2, '0')}/${bars}`,
+      line: `${on.map((e) => e.id).join(' + ') || '—'} · ${this.audio.section(t)?.name ?? ''} · ${t.toFixed(2)}s`,
+      beat: Math.floor((bar - Math.floor(bar)) * 4 + 1e-6),
+    };
   }
 
   /** RGBA8 pixels of the last rendered frame (bottom-up rows), PW x PH. */
