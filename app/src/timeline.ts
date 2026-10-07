@@ -17,6 +17,10 @@ export function makeTimeline(_ly: Lyrics, au: AudioData): TimelineEntry[] {
     ({ id, load: scene(file), start, end, ...extra });
   // ?sky：只载入天空示例（云海、光点、日出光束、镜头虚化，scenes/demo_sky.ts），不在默认示例里
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
+  // ?ref=<名>：参考片逐帧复刻（scenes/ref_<名>.ts，docs/复刻配方.md），场景从 0 秒开始、本地时间对齐原片那一段
+  const REF: Record<string, number> = { boot: 2.7, stack: 2.6, rhythm: 3.6, kaleido: 3.1, record: 1.65, droste: 3.2, glitch: 1.65, crash: 8.1, invader: 3.05, stage: 4.0 };
+  const ref = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('ref') ?? (new URLSearchParams(location.search).has('boot') ? 'boot' : null) : null;
+  if (ref && REF[ref]) return [E(`ref-${ref}`, `ref_${ref}`, 0, REF[ref]!)];
   // 示例：2D 场景 3 小节，同一个模块换参数再 2 小节，然后 3D 场景到结尾（都在强拍上硬切）
   const b3 = au.timeOfBar(3), b5 = au.timeOfBar(5);
   return [
