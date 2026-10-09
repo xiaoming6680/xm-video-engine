@@ -1,5 +1,5 @@
 """发布封面：从 4K 静帧裁出横 4:3、竖 3:4 两张（抖音），或加 --bili 只出一张 16:9（B 站），压一组排版（和以前的封面同一套：宋体主文案、
-字距拉开的英文小字、一条细线、BY XIAOMING6680）。
+字距拉开的英文小字、一条细线、BY 署名；署名默认取 app/src/config.ts 的 CREDIT，没填就不印）。
 
     cd app && bun scripts/render.ts stills --scale 2 --samples 16 --t 59.5 --out ../out/covers/src && cd ..
     python tools/cover_title.py out/covers/src/f_0059.50.png --line1 闪电劈进沙漠 --line2 会留下什么？
@@ -9,6 +9,7 @@
 B 站 16:9 是整幅不裁，文字块收小、压到底部 6% 以上：中间留给画面；推荐卡片的播放数和时长在左右两角，不会碰到居中的字。
 """
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
@@ -57,6 +58,13 @@ def ink(font, text):
     return b[3] - b[1]
 
 
+def credit():
+    """app/src/config.ts 的 CREDIT（角落署名）：封面默认的 BY 行。没填就是空，不印。"""
+    p = Path(__file__).resolve().parent.parent / "app" / "src" / "config.ts"
+    m = re.search(r"export const CREDIT = '([^']*)'", p.read_text(encoding="utf-8")) if p.exists() else None
+    return f"BY {m.group(1)}" if m and m.group(1) else ""
+
+
 def make(src, aspect, size, cx, a, top, bottom, k):
     W, H = src.size
     cw = round(H * aspect[0] / aspect[1])
@@ -72,11 +80,12 @@ def make(src, aspect, size, cx, a, top, bottom, k):
     f_by = ImageFont.truetype(str(CAPS), round(u * k * 0.021))
     m = f_main.size
     # 自上而下：(种类, 文字, 字体, 下方留白)，按墨迹的实际高度排
-    items = [("text", a.tag, f_tag, 0.6 * m)]
+    items = [("text", a.tag, f_tag, 0.6 * m)] if a.tag else []
     lines = [t for t in (a.line1, a.line2) if t]
     for i, t in enumerate(lines):
         items.append(("text", t, f_main, (0.62 if i == len(lines) - 1 else 0.36) * m))
-    items += [("rule", None, None, 0.5 * m), ("text", a.by, f_by, 0)]
+    if a.by:
+        items += [("rule", None, None, 0.5 * m), ("text", a.by, f_by, 0)]
     heights = [ink(f, t) if k == "text" else 1 for k, t, f, _ in items]
     block = sum(heights) + sum(gap for *_, gap in items)
     y = h * top if a.at == "top" else h * bottom - block
@@ -104,10 +113,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("still")
     ap.add_argument("--cx", type=float, default=0.5)
-    ap.add_argument("--line1", default="闪电劈进沙漠")
-    ap.add_argument("--line2", default="会留下什么？")
-    ap.add_argument("--tag", default="FALLING AGAIN · NURKO, RONIIT")
-    ap.add_argument("--by", default="BY XIAOMING6680")
+    ap.add_argument("--line1", required=True, help="主文案第一行")
+    ap.add_argument("--line2", default="")
+    ap.add_argument("--tag", default="", help="上方小字，如 'FALLING AGAIN · NURKO, RONIIT'")
+    ap.add_argument("--by", default=credit(), help="底部署名，默认 'BY ' + config.ts 的 CREDIT")
     ap.add_argument("--at", default="bottom", choices=["bottom", "top"])
     ap.add_argument("--name", default="", help="输出文件名的后缀")
     ap.add_argument("--out", default="out/covers/发布")

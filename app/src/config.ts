@@ -21,8 +21,8 @@ export const OUT = 'out/film.mp4';
  */
 export const AUDIO_FILTER: string | null = null;
 
-/** 角落署名的文字（场景返回 post.watermark > 0 时才显示，默认不显示）。 */
-export const CREDIT = 'XIAOMING6680';
+/** 你的署名：角落水印（场景返回 post.watermark > 0 时才显示）和 tools/cover_title.py 封面底部的「BY …」都用它。空 = 不署名。 */
+export const CREDIT = '';
 
 /**
  * 额外字体：public/fonts/ 下的文件，family 是 Canvas2D 里用的名字。文件不存在时只警告、不阻止启动。
