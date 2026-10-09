@@ -115,12 +115,12 @@ export default class RefStage extends Scene {
     both((c) => { c.fillStyle = '#4FE3FF'; c.beginPath(); c.moveTo(p.x, p.y - 7); c.lineTo(p.x + 7, p.y); c.lineTo(p.x, p.y + 7); c.lineTo(p.x - 7, p.y); c.closePath(); c.fill(); });
     // ---- the HUD (part of the world: it tilts with it) ----
     w.font = PIX(14); w.fillStyle = '#FFFFFF'; w.textBaseline = 'middle';
-    w.fillText('SMILE', 150, 404); w.fillText('LV 7', 290, 404); w.fillText('HP', 390, 404);
+    w.fillText('FRAME', 150, 404); w.fillText('LV 7', 290, 404); w.fillText('HP', 390, 404);
     const hp = t < HIT ? 1 : 0.82;
     w.fillStyle = '#F7E018'; w.fillRect(430, 396, 150 * hp, 18); w.fillStyle = '#E8202A'; w.fillRect(430 + 150 * hp, 396, 150 * (1 - hp), 18);
     w.fillStyle = '#FFFFFF'; w.fillText(`${Math.round(52 * hp)} / 52`, 600, 404);
     w.strokeStyle = '#FF8A20'; w.lineWidth = 3; w.font = PIX(14); w.fillStyle = '#FF8A20';
-    ['RUN', 'PARTY', 'SAVE', 'QUIT'].forEach((s, i) => { w.strokeRect(150 + i * 170, 432, 140, 40); w.fillText(s, 150 + i * 170 + 70 - w.measureText(s).width / 2, 453); });
+    ['RUN', 'RENDER', 'SAVE', 'QUIT'].forEach((s, i) => { w.strokeRect(150 + i * 170, 432, 140, 40); w.fillText(s, 150 + i * 170 + 70 - w.measureText(s).width / 2, 453); });
     // ---- the last beam: from the right cannon, swinging onto the camera ----
     if (T >= BEAM) {
       const a = ease.inCubic(prog(T, BEAM, END)), bw = 30 + 260 * a;

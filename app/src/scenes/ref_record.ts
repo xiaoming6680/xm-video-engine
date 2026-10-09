@@ -104,7 +104,7 @@ export default class RefRecord extends Scene {
     // the label
     c.fillStyle = '#000'; c.beginPath(); c.arc(CX, CY, H * 0.245, 0, Math.PI * 2); c.fill();
     c.fillStyle = PINK; c.beginPath(); c.arc(CX, CY, H * 0.21, 0, Math.PI * 2); c.fill();
-    const bytes = 'E2 80 A2 · E2 80 A2 · 20 E2 80 A2 · ';
+    const bytes = '66 28 74 29 · 66 28 74 29 · 20 3D 20 · ';
     c.save(); c.font = font(F.mono(500), 15); c.fillStyle = 'rgba(70,10,40,0.75)'; c.textAlign = 'center'; c.textBaseline = 'middle';
     const n = bytes.length * 2;
     for (let i = 0; i < n; i++) { const a = T * 0.5 + (i / n) * Math.PI * 2; c.save(); c.translate(CX + Math.cos(a) * H * 0.19, CY + Math.sin(a) * H * 0.19); c.rotate(a + Math.PI / 2); c.fillText(bytes[i % bytes.length]!, 0, 0); c.restore(); }
@@ -148,9 +148,9 @@ export default class RefRecord extends Scene {
       c.fillStyle = 'rgba(8,10,24,0.88)'; c.fillRect(x, y, w, h);
       c.strokeStyle = 'rgba(190,200,220,0.7)'; c.lineWidth = 2; c.strokeRect(x + 6, y + 6, w - 12, h - 12);
       c.font = font(F.mono(500), 20); c.textBaseline = 'middle';
-      c.fillStyle = '#0B0C18'; c.fillRect(x + 20, y - 2, 300, 16); c.fillStyle = '#C9D2E0'; c.fillText('smile.exe :: party monitor', x + 24, y + 6);
+      c.fillStyle = '#0B0C18'; c.fillRect(x + 20, y - 2, 300, 16); c.fillStyle = '#C9D2E0'; c.fillText('frame.exe :: render monitor', x + 24, y + 6);
       const rnd = mulberry32(Math.floor(T * 8));
-      c.fillStyle = '#5BE38C'; c.fillText('friends  ∞', x + 22, y + 38);
+      c.fillStyle = '#5BE38C'; c.fillText('frames   ∞', x + 22, y + 38);
       c.fillStyle = '#F0B048'; c.fillText('memory', x + 22, y + 66); c.fillText(`${'@'.repeat(19)}# ${97 + Math.floor(rnd() * 3)}%`, x + 132, y + 66);
       c.fillText('cpu', x + 22, y + 94); c.fillText(`${'@'.repeat(20)} 100%`, x + 132, y + 94);
     }

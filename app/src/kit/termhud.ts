@@ -107,7 +107,7 @@ export function callout(c: Ctx, o: { ax: number; ay: number; x: number; y: numbe
 export const barText = (v: number, n = 16, on = '▮', off = '-') => on.repeat(Math.round(clamp(v) * n)) + off.repeat(n - Math.round(clamp(v) * n));
 
 export interface PanelRow { label: string; v: number; text?: string; color?: string }
-/** The party-monitor panel: title bar, label + segmented bar + value rows, then log lines. */
+/** The monitor panel: title bar, label + segmented bar + value rows, then log lines. */
 export function panel(c: Ctx, x: number, y: number, w: number, o: { title: string; rows: PanelRow[]; log?: { text: string; color?: string }[]; size?: number; alpha?: number }): Box {
   const s = o.size ?? 13, lh = s * 1.5, h = s * 1.9 + (o.rows.length + (o.log?.length ?? 0)) * lh + s * 0.6;
   c.save();
@@ -141,7 +141,7 @@ export function termWindow(c: Ctx, x: number, y: number, w: number, h: number, t
   c.fillStyle = 'rgba(8,10,12,0.94)'; c.fillRect(0, 0, w, h);
   c.strokeStyle = 'rgba(220,230,225,0.75)'; c.lineWidth = 1.5; c.strokeRect(3, 3, w - 6, h - 6);
   c.font = MONO(s * 0.7, 500); c.textBaseline = 'middle';
-  c.fillStyle = 'rgba(200,215,210,0.8)'; c.fillText(o.title ?? 'kaomoji.exe', s * 0.7, s * 0.75);
+  c.fillStyle = 'rgba(200,215,210,0.8)'; c.fillText(o.title ?? 'frame.exe', s * 0.7, s * 0.75);
   c.beginPath(); c.rect(0, s * 1.3, w, h - s * 1.3); c.clip();
   // lines that have started, the last ones kept in view
   const shown = o.lines.filter((l) => t >= l.t);

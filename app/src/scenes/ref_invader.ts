@@ -81,15 +81,15 @@ export default class RefInvader extends Scene {
   private hud(c: Ctx, T: number, three = false) {
     if (!three) {
       c.font = PIX(36); c.fillStyle = '#F2F2F2'; c.textBaseline = 'top';
-      c.fillText(`SCORE ${String(100 + 100 * Math.floor(T * 3)).padStart(6, '0')}`, 16, 18); c.fillText('HI-SCORE E280A2', 16, 60);
-      c.fillStyle = RED; c.textAlign = 'right'; c.fillText('GUARD v2.0 ▲▲▲', W - 30, 22); c.textAlign = 'left';
+      c.fillText(`SCORE ${String(100 + 100 * Math.floor(T * 3)).padStart(6, '0')}`, 16, 18); c.fillText('HI-SCORE 662874', 16, 60);
+      c.fillStyle = RED; c.textAlign = 'right'; c.fillText('QA v2.0 ▲▲▲', W - 30, 22); c.textAlign = 'left';
     }
     const x = 56, y = 144, lives = T >= BREAK ? 3 : 4;
     c.fillStyle = 'rgba(0,0,0,0.55)'; c.fillRect(x, y, 560, 192); c.strokeStyle = RED; c.lineWidth = 3; c.strokeRect(x, y, 560, 192);
-    c.font = PIX(26); c.fillStyle = RED; c.fillText(T >= BREAK ? 'GUARD v2.0 (￣□￣)' : 'GUARD v2.0 (;´A`)', x + 16, y + 22);
+    c.font = PIX(26); c.fillStyle = RED; c.fillText(T >= BREAK ? 'QA v2.0 (￣□￣)' : 'QA v2.0 (;´A`)', x + 16, y + 22);
     for (let i = 0; i < 5; i++) { c.fillStyle = i < lives ? RED : 'rgba(233,68,46,0.3)'; c.fillRect(x + 16 + i * 30, y + 76, 24, 30); }
     c.fillText(`${lives}/5`, x + 190, y + 80);
-    const log = T < 0.35 ? 'L2 8bit.rom · deploying' : T < FAILED ? '[QUARANTINE] hit 1 → 2' : T < 2.1 ? 'quarantine failed x80' : T < BREAK ? '[GUARD] garbage x2' : 'L2 breached ✗';
+    const log = T < 0.35 ? 'L2 8bit.rom · loading' : T < FAILED ? '[QA] flag 1 → 2' : T < 2.1 ? 'qa failed x80' : T < BREAK ? '[QA] garbage x2' : 'L2 breached ✗';
     c.font = PIX(20); c.fillStyle = log.startsWith('[') ? RED : '#EDEDED'; c.fillText(log, x + 16, y + 142);
     if (T < BREAK) { c.fillStyle = RED; if (frameIdx(T) % 30 < 15) c.fillRect(x + 16 + c.measureText(log).width + 6, y + 138, 14, 26); }
   }
@@ -186,7 +186,7 @@ export default class RefInvader extends Scene {
     renderer.render(this.world, this.cam);
     const c = this.ui.ctx; this.ui.clear();
     this.hud(c, T, true);
-    if (T >= BREAK) { c.font = PIX(26); c.fillStyle = '#E8E8E8'; c.textAlign = 'right'; c.fillText('LINES CF89', W - 40, 40); c.textAlign = 'left'; }
+    if (T >= BREAK) { c.font = PIX(26); c.fillStyle = '#E8E8E8'; c.textAlign = 'right'; c.fillText('LINES 7429', W - 40, 40); c.textAlign = 'left'; }
     comp.draw(renderer, this.ui.upload(), out);
     return { bloom: 0.5, bloomThreshold: 0.85, ca: 1.5 + 4 * Math.exp(-brk * 6) * (brk > 0 ? 1 : 0), grain: 0.03, vignette: 0.3, radial: brk > 0 ? 0.08 : 0 };
   }

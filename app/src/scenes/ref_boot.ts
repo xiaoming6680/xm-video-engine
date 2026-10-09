@@ -148,7 +148,7 @@ export default class DemoBoot extends Scene {
     // stamped with the clock (reference time 5.4 + T); the newest fades in while the older ones are pushed up
     // (continuous: no jump when a line is added, so no double image under motion blur)
     const loadY = H * 0.5, now = 5.4 + T;
-    const msgs = ['smile: calibrating ω', 'gpu: 64 samples / frame', 'faces: 1024 indexed', 'beat: 150 bpm locked', 'tube: phosphor warm', 'cheeks: nominal', 'party: armed'];
+    const msgs = ['seed: 0x5eed fixed', 'gpu: 64 samples / frame', 'glyphs: 1024 baked', 'beat: 150 bpm locked', 'tube: phosphor warm', 'shutter: 0.5', 'qa: watching'];
     const newest = Math.floor(now / 0.2 + 1e-6), frac = now / 0.2 - newest, push = (1 - ease.outCubic(clamp(frac * 3))) * LH;
     for (let j = 0; j < 4; j++) {
       const i = newest - j, y = loadY - LH * (j + 1) + push;
@@ -158,13 +158,13 @@ export default class DemoBoot extends Scene {
     }
     c.globalAlpha = 1;
     // progress bar
-    c.fillStyle = TEXT; c.fillText('loading faces [', X0, loadY);
-    const bx = X0 + c.measureText('loading faces [').width, bw = 900, p = 0.55 + 0.4 * prog(T, 0, ENTER);
+    c.fillStyle = TEXT; c.fillText('baking atlas [', X0, loadY);
+    const bx = X0 + c.measureText('baking atlas [').width, bw = 900, p = 0.55 + 0.4 * prog(T, 0, ENTER);
     c.fillStyle = GREEN; c.shadowColor = 'rgba(101,240,158,0.75)'; c.fillRect(bx + 10, loadY - 98, (bw - 20) * p, 112);
     c.fillStyle = TEXT; c.shadowColor = 'rgba(190,210,198,0.6)'; c.fillText(']', bx + bw, loadY);
     const y = loadY + LH * 1.55;
     // the command, typed ~10 chars/s, and the green block cursor
-    const cmd = 'smile --run --loud', typed = cmd.slice(0, clamp(Math.floor((T + 1.0) * 10), 0, cmd.length));
+    const cmd = 'render --scale 2', typed = cmd.slice(0, clamp(Math.floor((T + 1.0) * 10), 0, cmd.length));
     c.fillStyle = GREEN; c.fillText('>', X0, y);
     c.fillStyle = TEXT; c.fillText(typed, X0 + FS * 1.1, y);
     const cx = X0 + FS * 1.1 + c.measureText(typed).width + 10, typing = typed.length < cmd.length;

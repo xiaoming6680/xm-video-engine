@@ -240,22 +240,22 @@ export default class RefStack extends Scene {
       c.strokeStyle = 'rgba(200,214,206,0.85)'; c.lineWidth = 2; c.strokeRect(x + 7, y + 9, w - 14, h - 16);
       c.strokeStyle = 'rgba(200,214,206,0.4)'; c.lineWidth = 1.5; c.strokeRect(x + 12, y + 14, w - 24, h - 26);
       const mono = (wt = 500, px = 25) => font(F.mono(wt), px);
-      c.font = mono(500, 24); c.fillStyle = '#0B1011'; c.fillRect(x + 30, y, c.measureText('smile.exe').width + 16, 22);
-      c.fillStyle = '#84FABF'; c.textBaseline = 'middle'; c.fillText('smile.exe', x + 38, y + 11);
+      c.font = mono(500, 24); c.fillStyle = '#0B1011'; c.fillRect(x + 30, y, c.measureText('frame.exe').width + 16, 22);
+      c.fillStyle = '#84FABF'; c.textBaseline = 'middle'; c.fillText('frame.exe', x + 38, y + 11);
       c.textBaseline = 'alphabetic';
       const lx = x + 30, ly = y + 58;
       if (T < 0.7) {
-        c.font = mono(); c.fillStyle = '#F2F4F2'; c.fillText('(; ･∀･) party too loud', lx, ly);
+        c.font = mono(); c.fillStyle = '#F2F4F2'; c.fillText('(; ･∀･) bloom too hot', lx, ly);
         c.font = mono(600);
         const by = y + h - 30, okx = x + w * 0.24;
         c.fillStyle = '#E8ECEA'; c.fillRect(okx - 6, by - 24, c.measureText('[ OK ]').width + 12, 32);
         c.fillStyle = '#0B1011'; c.fillText('[ OK ]', okx, by);
-        const click = T > 0.53 && T < 0.62, lw = c.measureText('[ LOUDER ]').width, lxx = x + w * 0.62;
+        const click = T > 0.53 && T < 0.62, lw = c.measureText('[ HOTTER ]').width, lxx = x + w * 0.62;
         if (click) { c.fillStyle = '#F779A3'; c.fillRect(lxx - 6, by - 24, lw + 12, 32); }
-        c.fillStyle = click ? '#0B1011' : '#F779A3'; c.fillText('[ LOUDER ]', lxx, by);
+        c.fillStyle = click ? '#0B1011' : '#F779A3'; c.fillText('[ HOTTER ]', lxx, by);
       } else if (!root) {
-        c.font = mono(); c.fillStyle = '#F779A3'; c.fillText('LOUDER requires root', lx, ly);
-        const cmd = '> sudo make it louder', n = Math.max(0, Math.min(cmd.length, Math.floor((T - 0.76) * 60) + 2));
+        c.font = mono(); c.fillStyle = '#F779A3'; c.fillText('HOTTER requires root', lx, ly);
+        const cmd = '> sudo make it hotter', n = Math.max(0, Math.min(cmd.length, Math.floor((T - 0.76) * 60) + 2));
         c.fillStyle = '#F2F4F2'; const typed = T > 0.76 ? cmd.slice(0, n) : '>';
         c.fillText(typed, lx, ly + 32);
         if (blink(T + 0.13, 3) || n < cmd.length) { c.fillRect(lx + c.measureText(typed).width + 3, ly + 10, 13, 28); }
@@ -264,8 +264,8 @@ export default class RefStack extends Scene {
         c.font = mono(500, 23);
         c.fillStyle = '#F0B070'; c.fillText('[ROOT]', lx, ly + 58); c.fillStyle = '#F2F4F2'; c.fillText(' uid=0 (•ω•)', lx + c.measureText('[ROOT]').width, ly + 58);
         const vol = Math.min(125, 113 + 3 * Math.floor(Math.max(0, T - 1.45) / 0.25));
-        c.fillStyle = '#F485AE'; c.fillText(`volume ${'@'.repeat(19)} ${vol}%`, lx, ly + 88);
-        if (T >= 2.48) { c.fillStyle = '#F25C54'; c.font = mono(600, 23); c.fillText(`[GUARD] sand${'box holding'.slice(0, Math.floor((T - 2.48) * 60))}`, lx, ly + 118); }
+        c.fillStyle = '#F485AE'; c.fillText(`bloom  ${'@'.repeat(19)} ${vol}%`, lx, ly + 88);
+        if (T >= 2.48) { c.fillStyle = '#F25C54'; c.font = mono(600, 23); c.fillText(`[QA] sand${'box holding'.slice(0, Math.floor((T - 2.48) * 60))}`, lx, ly + 118); }
       }
       c.restore();
     }

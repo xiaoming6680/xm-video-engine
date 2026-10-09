@@ -31,7 +31,7 @@ export default class RefRhythm extends Scene {
       notes.push({ t, lane, dot: lane === 0 && k % 5 === 2 });
     }
     this.hw = new Highway({
-      notes, since: 0, markers: [{ t: 9, label: '46 · GUARD v2.0' }],
+      notes, since: 0, markers: [{ t: 9, label: '46 · QA v2.0' }],
       env: (t) => 0.5 + 0.4 * Math.sin(t * 7.8) * Math.sin(t * 3.1),
       score: (c) => (this.finalScore ? 255255 : Math.round(c * c * 62 + c * 200)),
     });
@@ -54,7 +54,7 @@ export default class RefRhythm extends Scene {
     c.font = font(F.archivo(100, 700), 26); c.fillStyle = RED; c.textAlign = 'left'; c.textBaseline = 'middle';
     c.fillText(T < 2.45 ? '43/63' : '44/63', W * 0.236, H * 0.49);
     c.globalAlpha = 0.55; c.font = font(F.mono(500), 15); c.textAlign = 'center';
-    c.fillText(`guard updating ${Math.min(99, 41 + Math.floor(T * 4))}%`, W * 0.5, H * 0.985); c.globalAlpha = 1;
+    c.fillText(`qa updating ${Math.min(99, 41 + Math.floor(T * 4))}%`, W * 0.5, H * 0.985); c.globalAlpha = 1;
     this.face(c, T);
     if (T >= FULL) {
       c.fillStyle = INK; c.font = font(F.archivo(100, 900), 236); c.textAlign = 'center'; c.textBaseline = 'middle';

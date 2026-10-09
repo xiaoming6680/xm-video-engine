@@ -213,9 +213,9 @@ export default class RefGlitch extends Scene {
     c.restore();
   }
 
-  /** "343 THREATS" bottom-left: orange number, red word, dark outline. */
+  /** "343 FLAGS" bottom-left: orange number, red word, dark outline. */
   private count(c: Ctx, n: number) {
-    const num = n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n), word = n === 1 ? ' THREAT' : ' THREATS';
+    const num = n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n), word = n === 1 ? ' FLAG' : ' FLAGS';
     c.save(); c.font = font(F.archivo(100, 900), 128); c.textBaseline = 'alphabetic'; c.lineJoin = 'round';
     const x = 30, y = H * 0.95, nw = c.measureText(num).width;
     c.lineWidth = 18; c.strokeStyle = INK; c.strokeText(num, x, y); c.strokeText(word, x + nw, y);

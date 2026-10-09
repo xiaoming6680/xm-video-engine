@@ -75,8 +75,8 @@ export default class RefIntroSwiss extends Scene {
       const c = this.over.ctx; this.over.clear();
       const dark = t >= WIRE && t < FRONT;
       plate(c, W - 28, 26, `${String(Math.floor(t / BAR) + 1).padStart(2, '0')}/63`, { size: 22, align: 'right', bg: dark ? '#3A3A40' : INK, fg: '#F4F2EE' });
-      c.font = font(F.mono(500), 15); c.fillStyle = dark ? '#9A9AA2' : '#333'; c.fillText('smile.exe', 40, 34);
-      metaLine(c, W - 40, H - 26, ['E2 80 A2 20 CF 89', '150 bpm', '4/4', 'swiss grid'], { size: 13, color: dark ? '#8A8A92' : '#77736C', align: 'right' });
+      c.font = font(F.mono(500), 15); c.fillStyle = dark ? '#9A9AA2' : '#333'; c.fillText('frame.exe', 40, 34);
+      metaLine(c, W - 40, H - 26, ['66 28 74 29', '150 bpm', '4/4', 'grid 12'], { size: 13, color: dark ? '#8A8A92' : '#77736C', align: 'right' });
       comp.draw(renderer, this.over.upload(), out);
     }
     return { bloom: 0.25, bloomThreshold: 0.95, grain: 0.04, vignette: 0.15, halation: 0.05, ca: 1.0, ...post };
@@ -202,12 +202,12 @@ export default class RefIntroSwiss extends Scene {
     // 2D: "CF 89" and the code point, the debug labels, the red scan bar
     const c = this.layer.ctx; this.layer.clear();
     c.font = font(F.archivo(100, 900), 230); c.textBaseline = 'alphabetic';
-    c.fillStyle = wire ? 'rgba(200,200,210,0.35)' : INK; c.fillText('CF 89', -40 + (front ? 30 : 0), 205);
-    c.font = font(F.archivo(100, 500), 34); c.fillText('U+03C9 ω', 700, 160);
+    c.fillStyle = wire ? 'rgba(200,200,210,0.35)' : INK; c.fillText('74 29', -40 + (front ? 30 : 0), 205);
+    c.font = font(F.archivo(100, 500), 34); c.fillText('U+0074 t', 700, 160);
     if (wire) {
       c.font = font(F.mono(500), 14); c.fillStyle = '#A8A8B0';
       for (let i = 0; i < 18; i++) c.fillText(['clean', 'scan', 'clean', 'mesh', 'clean'][i % 5]!, 40, 260 + i * 34);
-      c.fillStyle = '#E8412C'; c.fillText('[SCAN] grid 060/144 · 0 threats', 40, H - 40);
+      c.fillStyle = '#E8412C'; c.fillText('[QA] seams 060/144 · 0 flags', 40, H - 40);
       c.strokeStyle = '#E8412C'; c.lineWidth = 3; c.beginPath(); c.arc(W * 0.47, H * 0.58, 70, 0, Math.PI * 2); c.stroke();
     }
     const bar = prog(t, 12.35, 12.6);
@@ -238,7 +238,7 @@ export default class RefIntroSwiss extends Scene {
     // the sheet: header, rows of small faces, footer; 16 x 9 cells fill from the middle out
     const rnd = mulberry32(9);
     c.font = font(F.archivo(125, 900), 64); c.fillStyle = INK; c.textBaseline = 'alphabetic';
-    c.fillText('S M I L E . E X E', 60, 72);
+    c.fillText('F R A M E . E X E', 60, 72);
     c.font = font(F.mono(500), 19);
     for (let r = 0; r < 18; r++) {
       let line = '';

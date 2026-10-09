@@ -73,7 +73,7 @@ export default class RefIntroPop extends Scene {
       c.beginPath(); c.arc(x, y, 14, 0, Math.PI * 2); c.stroke();
       c.beginPath(); c.moveTo(x - 22, y); c.lineTo(x + 22, y); c.moveTo(x, y - 22); c.lineTo(x, y + 22); c.stroke();
     }
-    c.font = font(F.mono(500), 12); c.fillStyle = col; c.fillText('E2 80 A2 20 CF 89 · riso · 2 inks', 80, H - 44);
+    c.font = font(F.mono(500), 12); c.fillStyle = col; c.fillText('66 28 74 29 · riso · 2 inks', 80, H - 44);
   }
 
   /** A torn paper edge (a jagged polygon) — the next card sliding in at the frame's side. */

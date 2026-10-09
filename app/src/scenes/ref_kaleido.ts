@@ -230,21 +230,21 @@ export default class RefKaleido extends Scene {
     const x = 50, y = 880, w = 545, h = 148;
     c.fillStyle = 'rgba(14,12,16,0.82)'; c.fillRect(x, y, w, h);
     c.strokeStyle = RED; c.lineWidth = 2; c.strokeRect(x, y, w, h);
-    c.font = font(F.archivo(100, 800), 30); c.fillStyle = RED; c.textBaseline = 'middle'; c.fillText('GUARD v2.0', x + 14, y + 30);
+    c.font = font(F.archivo(100, 800), 30); c.fillStyle = RED; c.textBaseline = 'middle'; c.fillText('QA v2.0', x + 14, y + 30);
     c.strokeStyle = ORANGE; c.lineWidth = 2.5; c.strokeRect(x + 248, y + 12, 150, 38);
     c.fillStyle = ORANGE; c.font = font(F.archivo(100, 900), 30); c.textAlign = 'center'; c.fillText('ω', x + 323, y + 31); c.textAlign = 'left';
     c.fillStyle = RED; c.fillRect(x + 14, y + 62, 12, 26);
     for (let i = 1; i < 5; i++) { c.fillStyle = 'rgba(232,65,44,0.3)'; c.fillRect(x + 14 + i * 18, y + 62, 12, 26); }
     c.fillStyle = '#F2F2F2'; c.font = font(F.archivo(100, 700), 30); c.fillText('1/5', x + 115, y + 76);
-    const log = T < 1.0 ? 'L5 mirror.trap · deploying' : T < 1.6 ? `[SCAN] ${Math.min(24, 3 + Math.floor((T - 1) * 40))} threats` : T < 2.4 ? '[GUARD] lock ×10 → ×20 → ×40' : '[GUARD] last resort ▣';
-    c.font = font(F.mono(500), 21); c.fillStyle = log.startsWith('[GUARD]') ? '#F2F2F2' : '#E8E8E8';
+    const log = T < 1.0 ? 'L5 mirror.trap · loading' : T < 1.6 ? `[SCAN] ${Math.min(24, 3 + Math.floor((T - 1) * 40))} flags` : T < 2.4 ? '[QA] lock ×10 → ×20 → ×40' : '[QA] last resort ▣';
+    c.font = font(F.mono(500), 21); c.fillStyle = log.startsWith('[QA]') ? '#F2F2F2' : '#E8E8E8';
     if (log.startsWith('[')) { const tag = log.slice(0, log.indexOf(']') + 1); c.fillStyle = RED; c.fillText(tag, x + 14, y + 122); c.fillStyle = '#EDEDED'; c.fillText(log.slice(tag.length), x + 14 + c.measureText(tag).width, y + 122); }
     else c.fillText(log, x + 14, y + 122);
     if (T >= GIVE) {
       const p = ease.outBack(prog(T, GIVE, GIVE + 0.06));
       c.save(); c.translate(70, H * 0.82); c.scale(p, p);
       c.font = font(F.archivo(100, 800), 86);
-      const txt = '[GUARD] giving up ╮(ω ;)╭', tw = c.measureText(txt).width;
+      const txt = '[QA] giving up ╮(ω ;)╭', tw = c.measureText(txt).width;
       c.fillStyle = 'rgba(255,255,255,0.94)'; c.beginPath(); c.roundRect(-24, -60, tw + 48, 120, 30); c.fill();
       c.fillStyle = RED; c.fillText(txt, 0, 2);
       c.restore();

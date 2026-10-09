@@ -125,7 +125,7 @@ export default class RefCrash extends Scene {
       // the first frames: a torn bar of hex
       const rr = mulberry32(Math.floor(T * 30));
       for (let i = 0; i < 8; i++) { c.fillStyle = `rgba(${200 + rr() * 55},${120 + rr() * 80},${80 + rr() * 60},0.85)`; c.fillRect(W * 0.3 + rr() * 200, H * 0.4 + i * 6, 300 + rr() * 300, 5); }
-      c.font = font(F.mono(700), 34); c.fillStyle = '#F2A85A'; c.fillText('E2 80 A2 20 CF 89', W * 0.47, H * 0.43);
+      c.font = font(F.mono(700), 34); c.fillStyle = '#F2A85A'; c.fillText('66 28 74 29 20 3D', W * 0.47, H * 0.43);
     }
     if (show(BSOD + 0.2)) {
       const scroll = -H * 0.2 * ease.inOutCubic(prog(T, REMOVED - 0.15, REMOVED));
@@ -135,29 +135,29 @@ export default class RefCrash extends Scene {
       c.shadowColor = 'rgba(255,150,60,0.9)'; c.shadowBlur = 30; c.fillStyle = '#F7962E';
       const wink = T > 6.2 && T < 6.3 ? '(×ω•)' : '(×ω×)';
       c.fillText(wink, W * 0.09, H * 0.43); c.restore();
-      c.font = font(F.archivo(100, 400), 44); c.fillStyle = '#F2F4FF'; c.fillText('smile.exe partied a little too hard.', W * 0.09, H * 0.51);
+      c.font = font(F.archivo(100, 400), 44); c.fillStyle = '#F2F4FF'; c.fillText('frame.exe rendered a little too hard.', W * 0.09, H * 0.51);
       c.font = font(F.mono(500), 34); c.strokeStyle = '#F2F4FF'; c.lineWidth = 2;
-      const sf = 'Segmentation fault (smile dumped)'; c.strokeRect(W * 0.09 - 8, H * 0.54, c.measureText(sf).width + 16, 46); c.fillText(sf, W * 0.09, H * 0.574);
+      const sf = 'Segmentation fault (core dumped)'; c.strokeRect(W * 0.09 - 8, H * 0.54, c.measureText(sf).width + 16, 46); c.fillText(sf, W * 0.09, H * 0.574);
       if (T < REMOVED) {
-        c.font = font(F.mono(700), 52); c.fillStyle = '#F2F4FF'; const l = 'juice spilled on /dev/keyboard'; c.fillText(l, W * 0.09, H * 0.65);
+        c.font = font(F.mono(700), 52); c.fillStyle = '#F2F4FF'; const l = 'bloom overflowed: 65504 nits'; c.fillText(l, W * 0.09, H * 0.65);
         const bx = W * 0.09 + c.measureText(l).width + 24; c.fillStyle = '#18276A'; c.fillRect(bx, H * 0.61, 190, 56);
         c.fillStyle = RED; c.font = font(F.archivo(100, 800), 40); c.fillText('(￣▽￣)', bx + 12, H * 0.648);
       } else {
         c.font = font(F.mono(700), 52); c.fillStyle = RED; c.fillRect(W * 0.09 - 6, H * 0.6, 290, 64);
-        c.fillStyle = '#FFFFFF'; c.fillText('[GUARD]', W * 0.09, H * 0.65); c.fillText('threat removed', W * 0.09 + 310, H * 0.65);
+        c.fillStyle = '#FFFFFF'; c.fillText('[QA]', W * 0.09, H * 0.65); c.fillText('frame flagged', W * 0.09 + 310, H * 0.65);
         c.strokeStyle = RED; c.lineWidth = 7; c.beginPath(); c.moveTo(W * 0.09 + 790, H * 0.635); c.lineTo(W * 0.09 + 810, H * 0.655); c.lineTo(W * 0.09 + 840, H * 0.6); c.stroke();
       }
       // saving friends
       const pct = Math.min(100, Math.round(21 + (T - BSOD) * 40));
-      c.font = font(F.mono(600), 30); c.fillStyle = '#E8ECFF'; c.fillText('saving friends [', W * 0.09, H * 0.75);
-      const bx = W * 0.09 + c.measureText('saving friends [').width; c.fillStyle = '#E8ECFF'; c.fillRect(bx + 4, H * 0.725, 160 * pct / 100, 30);
+      c.font = font(F.mono(600), 30); c.fillStyle = '#E8ECFF'; c.fillText('flushing frames [', W * 0.09, H * 0.75);
+      const bx = W * 0.09 + c.measureText('flushing frames [').width; c.fillStyle = '#E8ECFF'; c.fillRect(bx + 4, H * 0.725, 160 * pct / 100, 30);
       c.fillText(`]  ${pct}%`, bx + 172, H * 0.75);
       qr(c, W * 0.09, H * 0.78, 185);
       c.font = font(F.mono(400), 22); c.fillStyle = 'rgba(220,226,255,0.85)';
-      ['culprit   E2 80 A2 20 CF 89 20 E2 80 A2', 'scan to meet the culprit', 'questions? ask the cat (=^･ω･^=)'].forEach((s, i) => c.fillText(s, W * 0.2, H * 0.81 + i * 30));
+      ['culprit   66 2E 74 20 3D 3D 20 4E 61 4E', 'scan for the seams report', 'questions? run tools/qa/seams.py'].forEach((s, i) => c.fillText(s, W * 0.2, H * 0.81 + i * 30));
       // a stack trace top right
       c.font = font(F.mono(400), 17); c.fillStyle = 'rgba(200,215,255,0.75)';
-      const tr = ['0x7ffd1e60  e2 80 a2 20 cf 89', '#0 splash()       drop2.ts:57', '#1 slingshot()    break.ts:37', '#2 throw(•ω•)     drop1.ts:29', '#3 bigbang()      drop1.ts:22', '#4 stargate()     transit.ts:16', '#5 print(riso)    build.ts:14', '#6 grid(12)       build.ts:10', '#7 main()         intro.ts:05', '[FAIL] blink-scheduler: next blink', '63/63 bars · 150 bpm · friends online: 1'];
+      const tr = ['0x7ffd1e60  66 28 74 29 20 3d', '#0 bloom()        post.ts:57', '#1 composite()    gl.ts:37', '#2 render(f)      scene.ts:29', '#3 sample(•ω•)    engine.ts:22', '#4 motionBlur()   engine.ts:16', '#5 post(riso)     post.ts:14', '#6 timeline()     timeline.ts:10', '#7 main()         render.ts:05', '[FAIL] cuecheck: next downbeat', '63/63 bars · 150 bpm · frames left: 1'];
       c.restore();
       tr.forEach((s, i) => c.fillText(s, W * 0.66, H * 0.16 + i * 22));
       if (T >= REMOVED) {
@@ -178,8 +178,8 @@ export default class RefCrash extends Scene {
       const lg = p.createLinearGradient(0, y - 30, 0, y + 30); lg.addColorStop(0, 'rgba(200,210,255,0)'); lg.addColorStop(0.5, `rgba(230,236,255,${off})`); lg.addColorStop(1, 'rgba(200,210,255,0)');
       p.fillStyle = lg; p.fillRect(CX - lw / 2, y - 30, lw, 60); p.fillStyle = `rgba(255,255,255,${off})`; p.fillRect(CX - lw / 2, y - 2, lw, 4);
       p.font = font(F.mono(700), 46); p.textAlign = 'center';
-      p.fillStyle = RED; p.fillRect(CX - 420, y + 50, 240, 60); p.fillStyle = '#FFF'; p.fillText('[GUARD]', CX - 300, y + 95);
-      p.fillText('threat removed ✓', CX + 60, y + 95);
+      p.fillStyle = RED; p.fillRect(CX - 420, y + 50, 240, 60); p.fillStyle = '#FFF'; p.fillText('[QA]', CX - 300, y + 95);
+      p.fillText('frame flagged ✓', CX + 60, y + 95);
 
       comp.draw(renderer, this.pic.upload(), out);
     }
@@ -203,7 +203,7 @@ export default class RefCrash extends Scene {
     } else { c.save(); c.font = font(F.archivo(100, 900), r * 1.1); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#F7A23A'; c.fillText('ω', CX, CY); c.fillStyle = '#FFE8D8'; c.beginPath(); c.arc(CX, CY - r * 0.1, r * 0.22, 0, Math.PI * 2); c.fill(); c.restore(); }
     if (T < DOT) {
       c.font = font(F.mono(700), 46); c.textAlign = 'center'; c.fillStyle = `rgba(255,255,255,${T > DOT ? 0.5 : 1})`;
-      const a = 'next blink at frame ', wa = c.measureText(a).width, wb = c.measureText('5784').width; c.textAlign = 'left';
+      const a = 'next downbeat at frame ', wa = c.measureText(a).width, wb = c.measureText('5784').width; c.textAlign = 'left';
       c.fillText(a, CX - (wa + wb) / 2, H * 0.9); c.fillStyle = '#F7C24A'; c.fillText('5784', CX - (wa + wb) / 2 + wa, H * 0.9);
     }
     comp.draw(renderer, this.ui.upload(), out, { mode: 'replace' });

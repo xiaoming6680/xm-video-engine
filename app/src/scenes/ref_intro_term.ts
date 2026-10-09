@@ -17,7 +17,7 @@ const LOG = 0.8, SCROLL = 1.18, RAIN = 1.63, SCAN = 2.32, TILT = 2.78, FLOOR = 3
 const GREEN = '#65F09E', TEXT = '#AABAB1', ORANGE = '#F0A040', PINK = '#F078A8';
 const MONO = F.mono(600);
 const RAIN_CHARS = '()•ω^_-=+*:;.,|/\\<>[]{}°~!?#%@0123456789ABCDEFx';
-const HEX = 'E2 80 A2 20 CF 89 20 E2 80 A2'.split(' ');
+const HEX = '66 28 74 29 20 3D 20 66 2E 74'.split(' ');
 const NCOL = 170, PER = 34;
 const FOV = 35, CAM_D = H / 2 / Math.tan((FOV / 2) * Math.PI / 180);
 const FLOOR_Y = -620, FLOOR_W = 5200, FLOOR_D = 5200, FLOOR_Z0 = 420;   // world px (y up, z toward the camera)
@@ -133,10 +133,10 @@ export default class RefIntroTerm extends Scene {
   }
 
   private logLines(): [string, string][] {
-    const L: [string, string][] = [['SMILE.EXE v1.0 (•ω•)', ORANGE], ['(c) 2026 xm labs · all faces reserved', TEXT]];
-    const msgs = ['boot: cpu0 online', 'mem: 1024 friends ok', 'gpu: angle · 16 samples', '[ OK ] mounting /dev/smile', '[ OK ] started grin-daemon', '[ OK ] started blink-timer',
-      '[ OK ] calibrating mouth ω', '[ OK ] loading eyes • •', '[SCAN] cheeks .. nominal', '[ OK ] found cat (=^•ω•^=)', '[ OK ] found bear ʕ•ᴥ•ʔ', '[ OK ] party.exe queued',
-      '[ OK ] tuning bass 150 bpm', '[ OK ] warming tube', '[ OK ] 0 missing glyphs', '[ OK ] drawing swiss grid', '[ OK ] inking riso drums', '[ OK ] rolling memphis', '[ OK ] lighting matrix', '[ OK ] party target set'];
+    const L: [string, string][] = [['FRAME.EXE v1.0 (•ω•)', ORANGE], ['(c) 2026 xm · MIT · f(t) only', TEXT]];
+    const msgs = ['boot: cpu0 online', 'mem: 1024 frames ok', 'gpu: angle · 16 samples', '[ OK ] mounting /dev/frame', '[ OK ] started beat-daemon', '[ OK ] started cue-timer',
+      '[ OK ] calibrating bloom', '[ OK ] loading palette', '[SCAN] glyphs .. 0 missing', '[ OK ] found font Hershey', '[ OK ] found font Noto SC', '[ OK ] render.ts queued',
+      '[ OK ] beat grid 150 bpm', '[ OK ] warming tube', '[ OK ] BT.709 tagged', '[ OK ] drawing grid 12', '[ OK ] inking riso', '[ OK ] loading voxels', '[ OK ] lighting matrix', '[ OK ] output 3840x2160'];
     msgs.forEach((m, i) => L.push([i < 3 ? `[ ${(i * 0.000413 + (i === 2 ? 0.0005 : 0)).toFixed(6).padStart(9)}] ${m}` : m, m.startsWith('[SCAN]') ? '#E8503C' : m.includes('(') ? PINK : i < 3 ? TEXT : '#9FE8B8']));
     return L;
   }
@@ -193,12 +193,12 @@ export default class RefIntroTerm extends Scene {
       const id = String(213 + r * 31).padStart(4, '0');
       c.globalAlpha = dim;
       c.fillStyle = '#7FE6A6'; c.fillText('[ OK ]', x0, y);
-      c.fillStyle = '#D8E2DC'; c.fillText(`friend ${id} online`, x0 + 220, y);
+      c.fillStyle = '#D8E2DC'; c.fillText(`frame ${id} ready`, x0 + 220, y);
       c.fillStyle = PINK; c.fillText(r % 3 === 0 ? '(•ω•)ﾉ' : r % 3 === 1 ? '(^ω^)' : '(•‿•)', x0 + 820, y);
     }
     c.globalAlpha = 1;
     const y = rh * (rows - 0.5);
-    c.fillStyle = '#D8E2DC'; c.fillText('loading friends [', x0 - 200, y);
+    c.fillStyle = '#D8E2DC'; c.fillText('loading frames [', x0 - 200, y);
     c.fillStyle = GREEN; c.fillRect(x0 + 330, y - 24, 560 * pc / 100, 48);
     c.fillStyle = '#D8E2DC'; c.fillText(']', x0 + 900, y);
     c.fillStyle = ORANGE; c.fillText(`${pc}%`, x0 + 980, y);
