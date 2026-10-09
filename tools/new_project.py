@@ -2,8 +2,8 @@
 
   python tools/new_project.py ../我的新MV [--vertical]
 
-复制：app/（不含 node_modules）、analysis/（不含 models、work、setup_structure.py；分离模型和 SongFormer 环境共用基础引擎的）、tools/、docs/ 里的模板和清单、LICENSE（→ LICENSE.engine）；
-建好 audio/ data/ assets/ out/ refs/；docs/TREATMENT.md 从模板来；写一份项目的 CLAUDE.md（流程和质量下限，指回基础引擎的文档）；
+复制：app/（不含 node_modules）、analysis/（不含 models、work、setup_structure.py；分离模型和 SongFormer 环境共用基础引擎的）、tools/、.claude/skills/、docs/ 里的模板和清单、LICENSE（→ LICENSE.engine）；
+建好 audio/ data/ assets/ out/ refs/；docs/TREATMENT.md 从模板来；写一份项目的 CLAUDE.md（流程和画面标准怎么定，指回基础引擎的文档）；
 参考视频放 refs/，.gitignore 让它们不进仓库；--vertical 把 config.ts 改成 1080×1920。
 目标目录已存在且不是空的就停下，不覆盖任何东西。之后：
   cd <项目>/app && bun install
@@ -33,6 +33,7 @@ def main() -> None:
     shutil.copytree(BASE / "app", dst / "app", ignore=SKIP)
     shutil.copytree(BASE / "analysis", dst / "analysis", ignore=SKIP)
     shutil.copytree(BASE / "tools", dst / "tools", ignore=SKIP)
+    shutil.copytree(BASE / ".claude" / "skills", dst / ".claude" / "skills", ignore=SKIP)  # 复刻技能 mv-refmatch
     (dst / "docs").mkdir()
     shutil.copy(BASE / "docs" / "TREATMENT模板.md", dst / "docs" / "TREATMENT.md")
     shutil.copy(BASE / "LICENSE", dst / "LICENSE.engine")
@@ -72,9 +73,11 @@ def main() -> None:
         "## 规矩", "",
         "- **流程**：`docs/新项目流程.md`。规格 → 节拍校验片 → 方向样片（10–15 秒带声音的真实代码）→ 全片粗分镜（`render.ts animatic`）→ "
         "关键镜头打样 → 分段精做；方向样片和粗分镜两步停下来给用户看，锁定项和带范围的反馈写进本项目 `docs/TREATMENT.md`",
-        "- **质量下限**：复古 / 字符 / 故障 / 像素这类效果不低于基础引擎 `?ref=<名>` 十段的单帧质量（`docs/复刻配方.md` 第四节），同类镜头先抄它们的结构和数值；"
-        "用户给了参考视频时，按第五节验收三样：单帧像（`tools/refmatch.py sheet`）、连贯（`tools/qa/seams.py --ref`，带音乐原速从头连着看）、"
-        "运动量接近（`refmatch.py motion` / `strip`，每段 0.7–1.4）；只做到“效果有了”或只有单帧像、拼起来不连贯都不算",
+        "- **设计放手做**：方向、画风、手法都不设限，方向样片可以多给几个差别大的候选",
+        "- **画面标准由这支片自己定**：第 4 步关键镜头打样、用户确认的那几帧就是标准，之后“质感不够”都拿它们对照着改。"
+        "基础引擎的 `?ref=<名>` 场景是模块的参考实现（字符画、字符粒子、像素世界这类怎么接线），不是要照着做的样子",
+        "- **用户给了参考视频、明确要复刻或借某个镜头时**：按 `docs/复刻配方.md` 第五节验收三样：单帧像（`tools/refmatch.py sheet`）、"
+        "连贯（`tools/qa/seams.py --ref`，带音乐原速从头连着看）、运动量接近（`refmatch.py motion` / `strip`，每段 0.7–1.4）",
         "- 每轮先带音乐、原速、从头到尾连着看，再看单帧和报告（`tools/qa/seams.py`、`check_video.py`、`render.ts glyphs`）",
         "- 每轮预览按 `docs/质量验收.md` 查缺陷；写场景前读 `docs/引擎指南.md`",
         "- 歌词不进对话：内嵌歌词用 ffprobe 直接写成 `data/lyrics.src.lrc`，只按行号和时间戳处理",
