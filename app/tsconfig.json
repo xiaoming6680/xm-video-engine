@@ -12,7 +12,8 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "@webgpu/types"],
+    "paths": { "@coreroot/*": ["./src/vendor/shaders/*"] }
   },
   "include": ["src"]
 }

@@ -1,0 +1,1061 @@
+diff --git a/shaders/gpu/index.ts b/shaders/gpu/index.ts
+index 3365665..0962735 100644
+--- a/shaders/gpu/index.ts
++++ b/shaders/gpu/index.ts
+@@ -29,6 +29,7 @@ import {debugError, getGpuUnusableReason, isGpuUnavailableError, markGpuUnusable
+ import {createUniformStore, updateFieldValue, FieldHandle, ArrayFieldHandle, type UniformStore, type NodeHandles, type FieldInit} from './uniformStore'
+ import {SystemUniforms} from './kit/coords'
+ import {getAnimatedTimeState} from './kit/time'
++import {xmSetHostTime} from './xmClock' // XM-PATCH(host-clock)
+ import {colorStopsTransform, listPropTransform, transformColorSpace, colorToRGBA, setColorSpaceModeGpu} from './transforms'
+ import {resolveListItems, packList, listFieldName, listCountName, listDriverPath, parseListDriverPath, isPositionDriver, listHasDrivers} from '../utilities/listProps'
+ import {packStops, packConvertedStops, type ColorStop} from './kit/colorStops'
+@@ -164,6 +165,18 @@ export interface GpuInitializeOptions {
+     observeElement?: boolean
+     /** Shared wall-clock time origin (performance.now ms) for synced multi-renderer animation. */
+     timeOrigin?: number
++    /**
++     * XM-PATCH(canvas-format): the canvas texture format (default: the browser's preferred 8-bit format).
++     * `'rgba16float'` keeps HDR / high precision for a host that reads the canvas back as a texture.
++     */
++    canvasFormat?: GPUTextureFormat
++    /**
++     * XM-PATCH(fixed-size): a host-owned, offscreen renderer. The canvas is exactly `width` x `height`
++     * logical px backed at `pixelRatio` (no devicePixelRatio, no viewport / texture-size clamp, no window
++     * resize listener), and the renderer starts frame-locked: nothing draws until the host calls
++     * renderNow / renderSyntheticFrame. Use with `observeElement: false`.
++     */
++    fixedSize?: {width: number; height: number; pixelRatio: number}
+     /**
+      * REJECTED. This renderer is WebGPU-only and throws a descriptive error if a context is
+      * passed. Present only to give a clear error, not for use.
+@@ -446,6 +459,9 @@ export function shaderRendererGPU() {
+      * instead of animating content in from off-screen.
+      */
+     let pointerSeen = false
++    // XM-PATCH(pointer): the host scripts the pointer (setPointer) — real mouse/touch events are ignored,
++    // so a mouse moving over the preview page cannot change what an export renders
++    let xmPointerScripted = false
+     let cachedCanvasRect: DOMRect | null = null
+     let mouseListenersNeeded = false
+     let globalEventUnregister: (() => void) | null = null
+@@ -461,6 +477,8 @@ export function shaderRendererGPU() {
+     // ── Options ─────────────────────────────────────────────────────────────────────────
+     let rendererColorSpace: 'p3-linear' | 'srgb' = 'p3-linear'
+     let rendererToneMapping: ToneMappingMode = 'linear'
++    // XM-PATCH(canvas-format)
++    let rendererCanvasFormat: GPUTextureFormat | undefined
+     let enablePerformanceTracking = false
+     let setColorSpaceModeFn: ((mode: 'p3-linear' | 'srgb') => void) | null = null
+ 
+@@ -498,7 +516,12 @@ export function shaderRendererGPU() {
+         pointer: {x: -10, y: -10, seen: false},
+         pointerActive: false,
+         dimensions: {width: 0, height: 0},
++        // XM-PATCH(abs-clock): this frame's global time once the host drives the clock with setClock (else undefined).
++        // The library's CPU-side clocks (ambient drifts, spins, grain, shape sub-prop animation) use it instead of
++        // summing deltaTime, so a frame is a function of t even with deltaTime 0 and after a recompose.
++        xmTime: undefined as number | undefined,
+     }
++    let xmAbsoluteClock = false // XM-PATCH(abs-clock)
+ 
+     // ── Frame loop (RAF; throttle decision lives in renderFrameInternal) ────────────────
+     const frameLoop: FrameLoop = createFrameLoop((frameTime) => renderFrame(frameTime))
+@@ -1454,7 +1477,7 @@ export function shaderRendererGPU() {
+ 
+         const registry = buildRegistryView(store, handlesById)
+         const ir = composeNodeTree(registry, composeOptions())
+-        const pm = createPassManager(root, {textureManager, dispatcher})
++        const pm = createPassManager(root, {textureManager, dispatcher, canvasFormat: rendererCanvasFormat}) // XM-PATCH(canvas-format)
+         // A composition carrying user-authored WGSL builds its pipelines inside a validation
+         // scope: a body that fails to compile marks THIS composition broken (nothing draws until
+         // the structure changes) instead of counting toward the fatal uncaptured-error limit.
+@@ -1483,6 +1506,7 @@ export function shaderRendererGPU() {
+     /** Record a validation failure against one composition and tell the author once. */
+     const markBroken = (bc: BuiltComposition, message: string): void => {
+         bc.broken = message
++        xmNoteError('broken', message) // XM-PATCH(errors)
+         authorError(
+             '[gpu] a shader in this composition failed GPU validation — it will not draw until it changes. ' +
+             'If you are writing a wgsl`…` body, the message below points at the line:\n' + message,
+@@ -2003,6 +2027,8 @@ export function shaderRendererGPU() {
+         globalElapsedTime = frameLocked
+             ? globalElapsedTime + deltaTime
+             : deriveElapsedTime(sharedTimeOrigin, globalElapsedTime, deltaTime, performance.now())
++        frameParams.xmTime = xmAbsoluteClock ? globalElapsedTime : undefined // XM-PATCH(abs-clock)
++        xmSetHostTime(frameParams.xmTime) // XM-PATCH(host-clock)
+ 
+         for (const node of nodes.values()) {
+             const maps = node.metadata.maps ?? {}
+@@ -2647,6 +2673,15 @@ export function shaderRendererGPU() {
+ 
+     const updateMouseListenerRegistration = (): void => {
+         let needsMouse = false
++        if (xmPointerScripted) {
++            // XM-PATCH(pointer): never listen to the window
++            if (globalEventUnregister) {
++                globalEventUnregister()
++                globalEventUnregister = null
++            }
++            mouseListenersNeeded = false
++            return
++        }
+         for (const node of nodes.values()) {
+             if (node.usesPointer) {
+                 needsMouse = true
+@@ -2757,7 +2792,14 @@ export function shaderRendererGPU() {
+      * forever. Only the FIRST error of a run is debug-logged — a per-frame console flood is
+      * itself a way to freeze a tab.
+      */
++    // XM-PATCH(errors): every render / device / composition error, for a host that must fail loudly
++    // instead of silently drawing nothing (bounded; see getErrors)
++    const xmErrors: string[] = []
++    const xmNoteError = (kind: string, e: unknown): void => {
++        if (xmErrors.length < 50) xmErrors.push(`${kind}: ${String((e as {message?: string})?.message ?? e)}`)
++    }
+     const noteRenderFailure = (error: unknown): void => {
++        xmNoteError('render', error) // XM-PATCH(errors)
+         // A GpuUnavailableError from the build path is a DEFINITE verdict, not a flaky frame
+         // (e.g. "this composition needs more uniform bytes than the device allows"). Retrying it
+         // four more times can only produce the same answer, so short-circuit and keep the
+@@ -2798,6 +2840,7 @@ export function shaderRendererGPU() {
+                 /* non-cancelable in some polyfills — nothing else we can do */
+             }
+             const gpuError = (event as {error?: unknown}).error
++            xmNoteError('device', gpuError) // XM-PATCH(errors)
+             authorError('[gpu] uncaptured device error (a custom WGSL body that fails to compile reports here — read the message for the line):', gpuError)
+             if (typeof GPUOutOfMemoryError !== 'undefined' && gpuError instanceof GPUOutOfMemoryError) {
+                 fail('out-of-memory', gpuError)
+@@ -2889,7 +2932,10 @@ export function shaderRendererGPU() {
+             forceFullFrameRate: forceFullFps = false,
+             observeElement: shouldObserveElement = true,
+             timeOrigin: initialTimeOrigin,
++            canvasFormat,
++            fixedSize,
+         } = options
++        rendererCanvasFormat = canvasFormat // XM-PATCH(canvas-format)
+ 
+         if (initialTimeOrigin != null) sharedTimeOrigin = initialTimeOrigin
+         enablePerformanceTracking = enableTracking
+@@ -2923,7 +2969,7 @@ export function shaderRendererGPU() {
+             attachUncapturedErrorHandler(root.device)
+ 
+             // DPR is our own factor (no setPixelRatio).
+-            pixelRatio = basePixelRatio()
++            pixelRatio = fixedSize ? fixedSize.pixelRatio : basePixelRatio() // XM-PATCH(fixed-size)
+ 
+             // Refine the real max texture dimension.
+             const lim = root.device.limits?.maxTextureDimension2D
+@@ -2937,7 +2983,7 @@ export function shaderRendererGPU() {
+             if (typeof window !== 'undefined') {
+                 unloadHandler = () => cleanup()
+                 window.addEventListener('beforeunload', unloadHandler)
+-                windowResizeHandler = () => {
++                if (!fixedSize) windowResizeHandler = () => { // XM-PATCH(fixed-size): no resize listener
+                     if (lastRequestedWidth > 0 && lastRequestedHeight > 0) {
+                         const rawW = lastRequestedWidth
+                         const rawH = lastRequestedHeight
+@@ -2946,7 +2992,7 @@ export function shaderRendererGPU() {
+                         updateRendererDimensions(rawW, rawH)
+                     }
+                 }
+-                window.addEventListener('resize', windowResizeHandler, {passive: true})
++                if (windowResizeHandler) window.addEventListener('resize', windowResizeHandler, {passive: true})
+             }
+ 
+             // Initial dimensions (immediate, not RAF-throttled — so the first frame has a size).
+@@ -2962,14 +3008,15 @@ export function shaderRendererGPU() {
+                     rect.right > 0)
+             shouldAnimate = true
+ 
+-            const rawWidth = rect.width > 0 ? rect.width : canvas.width
+-            const rawHeight = rect.height > 0 ? rect.height : canvas.height
++            // XM-PATCH(fixed-size): exactly the host's size
++            const rawWidth = fixedSize ? fixedSize.width : rect.width > 0 ? rect.width : canvas.width
++            const rawHeight = fixedSize ? fixedSize.height : rect.height > 0 ? rect.height : canvas.height
+             const roundedRawWidth = Math.round(rawWidth)
+             const roundedRawHeight = Math.round(rawHeight)
+             if (roundedRawWidth > 0 && roundedRawHeight > 0) {
+                 lastRequestedWidth = roundedRawWidth
+                 lastRequestedHeight = roundedRawHeight
+-                const {width: cw, height: ch} = clampToTextureCap(roundedRawWidth, roundedRawHeight)
++                const {width: cw, height: ch} = fixedSize ? {width: roundedRawWidth, height: roundedRawHeight} : clampToTextureCap(roundedRawWidth, roundedRawHeight) // XM-PATCH(fixed-size)
+                 currentWidth = cw
+                 currentHeight = ch
+                 logicalWidth = roundedRawWidth
+@@ -2984,7 +3031,8 @@ export function shaderRendererGPU() {
+             }
+ 
+             // Configure the canvas context (once — it auto-tracks canvas size).
+-            context = configureCanvasContext(root, canvas)
++            // XM-PATCH(canvas-format): a float canvas keeps values outside 0..1 ('extended')
++            context = configureCanvasContext(root, canvas, rendererCanvasFormat ? {format: rendererCanvasFormat, toneMapping: {mode: 'extended'}} as never : {})
+ 
+             if (shouldObserveElement && typeof ResizeObserver !== 'undefined') {
+                 const elementToObserve = resizeTarget ?? canvas.parentElement
+@@ -3012,8 +3060,13 @@ export function shaderRendererGPU() {
+             isRendererReady = true
+             processQueuedRegistrations()
+ 
+-            if (currentWidth > 0 && currentHeight > 0) renderFrame()
+-            if (shouldAnimate) startAnimation()
++            if (fixedSize) {
++                // XM-PATCH(fixed-size): frame-locked from the start (clocks at 0), nothing drawn yet
++                frameLocked = true
++            } else {
++                if (currentWidth > 0 && currentHeight > 0) renderFrame()
++                if (shouldAnimate) startAnimation()
++            }
+         } catch (error) {
+             // Every start-up failure is terminal for THIS renderer. Attribute it (so hosts can
+             // tell "no WebGPU in this browser" from "something broke"), release whatever was
+@@ -3310,6 +3363,99 @@ export function shaderRendererGPU() {
+                 }
+             }
+         },
++        /**
++         * XM-PATCH(clock): set every clock to song time `t` (seconds) instead of advancing it, for a host
++         * whose output must be a function of t (frames rendered in any order: seeks, motion-blur
++         * sub-frames). The global time is `t`; each animated-time node's clock is `t * speed` (its
++         * CURRENT speed), or `overrides[nodeId]` (extra clocks: `overrides['<nodeId>:<key>']`) when given.
++         * Pair with `renderNow(0)`. Simulations (compute feedback) still advance per rendered frame.
++         */
++        setClock: (t: number, overrides?: Record<string, number>): void => {
++            if (!Number.isFinite(t)) throw new TypeError(`[gpu] setClock: t must be finite, got ${t}`)
++            globalElapsedTime = t
++            xmAbsoluteClock = true // XM-PATCH(abs-clock)
++            for (const node of nodes.values()) {
++                const at = node.definition.animatedTime
++                if (at) {
++                    const su = node.uniforms[at.speed]
++                    const speed = su ? Number(su.value) || 0 : 0
++                    const v = overrides?.[node.id] ?? t * speed
++                    getAnimatedTimeState(animatedTimeKey(node)).value = v
++                    writeSyntheticScalar(node, '_animTime', v)
++                }
++                const extras = node.definition.extraAnimatedTimes
++                if (extras) {
++                    for (const [key, speedProp] of Object.entries(extras)) {
++                        const su = node.uniforms[speedProp]
++                        const sp = su ? Number(su.value) || 0 : 0
++                        const v = overrides?.[`${node.id}:${key}`] ?? t * sp
++                        getAnimatedTimeState(extraAnimatedTimeKey(node, speedProp)).value = v
++                        writeSyntheticScalar(node, `_animTime_${key}`, v)
++                    }
++                }
++            }
++        },
++        /**
++         * XM-PATCH(clock): draw one frame NOW, synchronously, advancing the clocks by `deltaSeconds`
++         * (0 after setClock). Unlike renderSyntheticFrame there is no GPU fence: a host reading the
++         * canvas back must do it in the same task (the read synchronises with the queue).
++         */
++        renderNow: (deltaSeconds: number): void => {
++            if (!Number.isFinite(deltaSeconds)) throw new TypeError(`[gpu] renderNow: deltaSeconds must be finite, got ${deltaSeconds}`)
++            renderFrameInternal(deltaSeconds)
++        },
++        /**
++         * XM-PATCH(clock): true when the composition on screen is the one the current props describe
++         * (no structural change pending, no swap-when-ready in flight). After a compile-time prop change
++         * the new composition shows from the NEXT frame: a host that must not show stale frames renders
++         * again until this is true.
++         */
++        isSettled: (): boolean => !structuralDirty && pipelineCache.pendingHash === null && !!pipelineCache.activeHash,
++        /**
++         * XM-PATCH(pointer): script the pointer: x, y in 0..1 of the canvas, top-left origin (as the mouse
++         * events give it); `active` = pressed / hovering. From the first call on, real mouse and touch events
++         * are ignored. Pass x = y = -10 for "no pointer" (the renderer's own off-canvas park).
++         */
++        setPointer: (x: number, y: number, active: boolean): void => {
++            if (!xmPointerScripted) {
++                xmPointerScripted = true
++                updateMouseListenerRegistration()
++            }
++            pointerX = x
++            pointerY = y
++            pointerActive = active
++            pointerSeen = x > -5
++        },
++        /**
++         * XM-PATCH(clock): drop every built composition — and with it every simulation's state (compute
++         * buffers, feedback textures, seeds) — and zero the clocks and the pointer/auto-animate drivers, so the
++         * next renderNow starts the simulations afresh, exactly as after initialize. Synchronous (the next
++         * frame rebuilds the composition).
++         */
++        resetState: (): void => {
++            pipelineCache.clear()
++            boundComposition = null
++            desiredHash = null
++            structuralDirty = true
++            globalElapsedTime = 0
++            for (const node of nodes.values()) {
++                node.mouseDriverState = {}
++                node.autoAnimateState = {}
++                node.mapValues = {}
++                node._liveHandles = null
++                ensureDriverState(node)
++                if (node.definition.animatedTime) getAnimatedTimeState(animatedTimeKey(node)).value = 0
++                for (const speedProp of Object.values(node.definition.extraAnimatedTimes ?? {})) {
++                    getAnimatedTimeState(extraAnimatedTimeKey(node, speedProp)).value = 0
++                }
++            }
++        },
++        /** XM-PATCH(errors): errors since the last clearErrors() (render, device, broken composition, failure). */
++        getErrors: (): string[] => (failureReason ? [`failed: ${failureReason}`, ...xmErrors] : [...xmErrors]),
++        clearErrors: (): void => {
++            xmErrors.length = 0
++        },
++
+         setOnReady: (callback: (() => void) | null): void => {
+             onReadyCallback = callback
+             // A late subscriber (after the first composed frame already rendered) fires next tick.
+diff --git a/shaders/gpu/kit/host/canvasRaster.ts b/shaders/gpu/kit/host/canvasRaster.ts
+index 6f4dd88..420503d 100644
+--- a/shaders/gpu/kit/host/canvasRaster.ts
++++ b/shaders/gpu/kit/host/canvasRaster.ts
+@@ -1,3 +1,4 @@
++import {xmHostDriven} from '../../xmClock' // XM-PATCH(host-clock)
+ /**
+  * CPU-side 2D-canvas rasterization helpers — the glyph half of Text, Ascii and ObjectTracker.
+  *
+@@ -166,8 +167,9 @@ export function createRasterInvalidator(params: GpuFragmentParams, opts: RasterI
+     let lastCheck = 0
+ 
+     params.onBeforeRender(() => {
++        // XM-PATCH(host-clock): no wall-clock throttle while the host drives the clock (every frame is checked)
+         const now = Date.now()
+-        if (now - lastCheck < minIntervalMs) return
++        if (!xmHostDriven() && now - lastCheck < minIntervalMs) return
+         lastCheck = now
+         const key = opts.key()
+         if (key === lastKey) return
+diff --git a/shaders/gpu/kit/noisePaints.ts b/shaders/gpu/kit/noisePaints.ts
+index 03d940f..450cb88 100644
+--- a/shaders/gpu/kit/noisePaints.ts
++++ b/shaders/gpu/kit/noisePaints.ts
+@@ -232,7 +232,9 @@ export const cellBorders = tgpu.fn([d.vec2f, d.f32, d.f32], d.f32)((dd, softness
+ /** The gentle `pow(rgb, 0.85)` tone lift on a final P3-linear rgb. GPU-only. */
+ export const toneLift = tgpu.fn([d.vec3f], d.vec3f)((rgb) => {
+     'use gpu'
+-    return std.pow(rgb, d.vec3f(0.85, 0.85, 0.85))
++    // XM-PATCH(no-nan): pow of a negative base is NaN in WGSL, and a back-conversion from a working space (HSL of an
++    // accumulated ribbon colour) can land a hair below 0 — Strands in HSL drew NaN pixels. Negative light shows as 0.
++    return std.pow(std.max(rgb, d.vec3f(0.0, 0.0, 0.0)), d.vec3f(0.85, 0.85, 0.85))
+ })
+ 
+ // Literal copy of colorStops.MAX_COLOR_STOPS: this feeds module-scope d.arrayOf schemas, and
+diff --git a/shaders/gpu/kit/sdf.ts b/shaders/gpu/kit/sdf.ts
+index ae474ef..ea1923a 100644
+--- a/shaders/gpu/kit/sdf.ts
++++ b/shaders/gpu/kit/sdf.ts
+@@ -23,9 +23,12 @@ import {mixColorsVariants, mixColorsLinear} from './colorMixing'
+ import {call, floatE, vec4} from '../composer'
+ import type {Expr, GpuFragmentParams, KitTexture, GpuMediaTexture} from '../contract'
+ import type {SurfacePatternMode} from './sdf3d'
++import {xmTrack} from '../xmPending'
+ 
+ // Must match generateSdf.ts OUTPUT_SIZE (baked SVG SDF field resolution).
+-export const SVG_SDF_SIZE = 512
++// XM-PATCH(sdf-1024): 1024² instead of 512² — shapes the engine makes itself (kit/sfx-shape.ts: text) keep thin strokes;
++// shaders.com's 512² .bin files no longer load (this engine never uses them)
++export const SVG_SDF_SIZE = 1024
+ 
+ // Math constants as plain number literals — the pattern for values referenced INSIDE a
+ // `'use gpu'` body (kit/colorMixing's PI_OVER_3 etc.). A `Math.PI` member access inside a body is
+@@ -444,7 +447,23 @@ export function fillStrokeColor(mask: Expr, fill: Expr, stroke: Expr, colorSpace
+  * `textureManager.createDataTexture` (r16float is always linear-filterable; r32float requires the
+  * optional `float32-filterable` feature), then samples it through the fn-arg / KitTexture path.
+  */
++// XM-PATCH(media-cache): SDF fields loaded on this page, by URL (decoded): a composition rebuilt with the same shape
++// fills its texture synchronously, so no frame after a rebuild renders the empty field
++const xmSdfCache = new Map<string, Float32Array>()
++/** XM-PATCH(media-cache): fill `sdfData` from the cache; false when this URL was not loaded yet. */
++export function xmCachedSdf(url: string, sdfData: Float32Array): boolean {
++    const c = xmSdfCache.get(url)
++    if (!c) return false
++    sdfData.set(c.subarray(0, sdfData.length))
++    return true
++}
++
+ export async function loadSdfFromUrl(url: string, sdfData: Float32Array): Promise<void> {
++    await loadSdfFromUrlNow(url, sdfData)
++    xmSdfCache.set(url, sdfData.slice()) // XM-PATCH(media-cache)
++}
++
++async function loadSdfFromUrlNow(url: string, sdfData: Float32Array): Promise<void> {
+     const response = await fetch(url, {mode: 'cors'})
+     if (!response.ok) throw new Error(`SDF fetch failed: HTTP ${response.status}`)
+     const buffer = await response.arrayBuffer()
+@@ -514,8 +533,12 @@ export function createSdfDataTexture(
+ 
+     let needsUpload = false
+     let version = 0
+-    if (shapeSdfUrl) {
+-        loadSdfFromUrl(shapeSdfUrl, sdfData)
++    if (shapeSdfUrl && xmCachedSdf(shapeSdfUrl, sdfData)) {
++        // XM-PATCH(media-cache): loaded before: uploaded in the first frame
++        for (let i = 0; i < count; i++) texData[i] = toHalfFloat(sdfData[i])
++        needsUpload = true
++    } else if (shapeSdfUrl) {
++        xmTrack(loadSdfFromUrl(shapeSdfUrl, sdfData)) // XM-PATCH(pending)
+             .then(() => {
+                 for (let i = 0; i < count; i++) texData[i] = toHalfFloat(sdfData[i])
+                 needsUpload = true
+@@ -615,8 +638,12 @@ export function createSvgSdfSamplerWithGradients(params: GpuFragmentParams, shap
+     }
+ 
+     let needsUpload = false
+-    if (shapeSdfUrl) {
+-        loadSdfFromUrl(shapeSdfUrl, sdfData)
++    if (shapeSdfUrl && xmCachedSdf(shapeSdfUrl, sdfData)) {
++        // XM-PATCH(media-cache): loaded before: baked and uploaded in the first frame
++        bake()
++        needsUpload = true
++    } else if (shapeSdfUrl) {
++        xmTrack(loadSdfFromUrl(shapeSdfUrl, sdfData)) // XM-PATCH(pending)
+             .then(() => {
+                 bake()
+                 needsUpload = true
+diff --git a/shaders/gpu/kit/sdf3d.ts b/shaders/gpu/kit/sdf3d.ts
+index e02fc48..527d035 100644
+--- a/shaders/gpu/kit/sdf3d.ts
++++ b/shaders/gpu/kit/sdf3d.ts
+@@ -1,3 +1,4 @@
++import {xmHostDriven} from '../xmClock' // XM-PATCH(host-clock)
+ /**
+  * 3D signed-distance-field primitives + orthographic raymarch (`'use gpu'` TGSL). It backs the
+  * sphere3D/cube3D/… shape-effect shaders (Glass, Neon, Crystal, LiquidMetal, …) which raymarch a
+@@ -954,7 +955,9 @@ export function resolveActiveFieldRes(
+         if (b >= targetPx) { res = b; break }
+     }
+     // Shrink deadband: only drop below the current res once the footprint has fallen well under it.
+-    if (prevRes > 0 && res < prevRes && targetPx > prevRes * 0.78) res = Math.min(prevRes, maxRes)
++    // XM-PATCH(host-clock): not while the host drives the clock — frames come in any order, and the resolution must be a
++    // function of this frame's footprint alone
++    if (!xmHostDriven() && prevRes > 0 && res < prevRes && targetPx > prevRes * 0.78) res = Math.min(prevRes, maxRes)
+     return res
+ }
+ 
+@@ -1819,6 +1822,8 @@ export interface VolumetricSetupOptions {
+ /** The per-frame params a setup's `update` reads (deltaTime → auto clock, pointer → mouse drivers). */
+ export interface ShapeFrameParams {
+     deltaTime?: number
++    /** XM-PATCH(abs-clock): the host's absolute clock (renderer frameParams.xmTime), when it drives one. */
++    xmTime?: number
+     pointer?: {x: number; y: number}
+ }
+ 
+@@ -1921,7 +1926,8 @@ export function createAnalytic3dSdfSetup(
+ 
+     const update = (frameParams?: ShapeFrameParams) => {
+         const deltaTime = frameParams?.deltaTime ?? 0
+-        elapsed += deltaTime
++        // XM-PATCH(abs-clock): from the host's absolute clock when there is one
++        elapsed = frameParams?.xmTime !== undefined ? frameParams.xmTime : elapsed + deltaTime
+         const raw = getShapeConfig()
+         if (raw && typeof raw === 'object') {
+             lastCfg = raw as Record<string, unknown>
+@@ -2151,7 +2157,8 @@ export function createSvg3dSdfSetup(
+ 
+     const update = (frameParams?: ShapeFrameParams) => {
+         const deltaTime = frameParams?.deltaTime ?? 0
+-        elapsed += deltaTime
++        // XM-PATCH(abs-clock): from the host's absolute clock when there is one
++        elapsed = frameParams?.xmTime !== undefined ? frameParams.xmTime : elapsed + deltaTime
+         const raw = getShapeConfig()
+         if (raw && typeof raw === 'object') {
+             lastCfg = raw as Record<string, unknown>
+diff --git a/shaders/gpu/kit/waves.ts b/shaders/gpu/kit/waves.ts
+index 2e91c76..4ae7fe7 100644
+--- a/shaders/gpu/kit/waves.ts
++++ b/shaders/gpu/kit/waves.ts
+@@ -1,3 +1,4 @@
++import {xmNow} from '../xmClock' // XM-PATCH(host-clock)
+ /**
+  * Wave-field simulation — the GPU bodies + runtime harness behind std's
+  * `simulate.grid({step: [op.wave, op.splat(pointer)], derive: {gradient}})`
+@@ -199,13 +200,13 @@ export function createWaveFieldSim(params: GpuFragmentParams, config: WaveFieldC
+     // user never made (entering the canvas, a tab switch) injects nothing. `'off'` lifts the
+     // jump threshold to infinity, so the tracker never classifies a move as a teleport.
+     const pointer = createPointerVelocityTracker(teleportGuard === 'off' ? {teleportGuard: Number.POSITIVE_INFINITY} : {})
+-    let lastActiveTime = Date.now()
++    let lastActiveTime = xmNow() // XM-PATCH(host-clock)
+ 
+     return {
+         displacement,
+         getComputeNodes: (frameParams: unknown): ComputeStep[] | null => {
+             const fp = frameParams as {pointer: {x: number; y: number}; deltaTime: number; dimensions?: {width: number; height: number}}
+-            const currentTime = Date.now()
++            const currentTime = xmNow() // XM-PATCH(host-clock)
+             const dt = Math.min(fp.deltaTime ?? 0, 0.016)
+             const safeW = Math.max(1, fp.dimensions?.width ?? curW)
+             const safeH = Math.max(1, fp.dimensions?.height ?? curH)
+diff --git a/shaders/gpu/root.ts b/shaders/gpu/root.ts
+index 22a9839..8f80736 100644
+--- a/shaders/gpu/root.ts
++++ b/shaders/gpu/root.ts
+@@ -34,9 +34,12 @@ import {GpuUnavailableError, debugWarn, getWebGPUSupport} from './support'
+ // `NODE_ENV` should stay silent, not noisy) and only re-enabled when `NODE_ENV` PROVES we're in
+ // our own dev/test workflow — the same exact check TypeGPU uses for its own DEV/TEST flags
+ // (typegpu/shared/env.js), so this tracks their verbosity rather than fighting it.
+-if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
+-    warn.disable('external-omitted')
+-}
++// XM-PATCH(no-process): the engine runs in the browser without Node's `process`; the warning is a known
++// false positive (see above), so it is always off here.
++warn.disable('external-omitted')
++// XM-PATCH(no-process): and the library's own deprecated-operator notices (its MaterialX noise hash uses `>>` on u32,
++// which TypeGPU flags on every resolve: correct code, console noise in every engine render)
++warn.disable('deprecated')
+ 
+ /**
+  * Optional GPU features requested when we create our OWN device. `float32-filterable`
+diff --git a/shaders/gpu/scaffolds/fluids.ts b/shaders/gpu/scaffolds/fluids.ts
+index 7b834a7..c5a4ce8 100644
+--- a/shaders/gpu/scaffolds/fluids.ts
++++ b/shaders/gpu/scaffolds/fluids.ts
+@@ -550,6 +550,8 @@ export interface StableFluidsKernels {
+     vorticity: (cx: number, cy: number) => void
+     divergence: (cx: number, cy: number) => void
+     jacobi: (cx: number, cy: number) => void
++    /** XM-PATCH(deterministic-fluids): the black half of the red-black sweep (`jacobi` is the red half). */
++    jacobiBlack?: (cx: number, cy: number) => void
+     gradSubtract: (cx: number, cy: number) => void
+     advectVel: (cx: number, cy: number) => void
+     copyVel: (cx: number, cy: number) => void
+@@ -728,8 +730,16 @@ export function buildStableFluidsKernels(
+             }).$name(`${namePrefix}Divergence`)
+ 
+     // ── One Jacobi relaxation of ∇²p = ∇·v. Dispatched J times per frame. ──
+-    const jacobi = tgpu.fn([d.u32, d.u32])((cx, cy) => {
++    // XM-PATCH(deterministic-fluids): upstream relaxed `pressure` IN PLACE in one dispatch — each cell read its
++    // neighbours while other threads were rewriting them, so the result depended on GPU scheduling (two runs of
++    // the same frames differed: Fog 51 levels). Red-black Gauss–Seidel instead: the red cells ((x + y) even) read
++    // only black neighbours, then the black ones read only red, so no read races a write. (On an odd-sized
++    // toroidal grid the wrap pairs two cells of one colour; every grid here is even.)
++    const jacobiHalf = (parity: number, name: string) => tgpu.fn([d.u32, d.u32])((cx, cy) => {
+         'use gpu'
++        if ((cx + cy) % d.u32(2) !== d.u32(parity)) {
++            return
++        }
+         const idx = cy * d.u32(n) + cx
+         const ii = d.i32(cy)
+         const ji = d.i32(cx)
+@@ -739,7 +749,9 @@ export function buildStableFluidsKernels(
+         const pD = layout.$.pressure[nb(ii, ji, 1, 0)]
+         const div = layout.$.divergence[idx]
+         layout.$.pressure[idx] = (pL + pR + pU + pD - div) * 0.25
+-    }).$name(`${namePrefix}Jacobi`)
++    }).$name(name)
++    const jacobi = jacobiHalf(0, `${namePrefix}JacobiRed`)
++    const jacobiBlack = jacobiHalf(1, `${namePrefix}JacobiBlack`)
+ 
+     // ── Project: v ← v − ∇p, which is what makes the field incompressible. ──
+     const velocityCap = opts.velocityCap
+@@ -875,7 +887,7 @@ export function buildStableFluidsKernels(
+             layout.$.velA[idx] = d.vec4f(v.x, v.y, 0.0, 0.0)
+         }).$name(`${namePrefix}CopyVel`)
+ 
+-    const kernels: StableFluidsKernels = {curl, vorticity, divergence, jacobi, gradSubtract, advectVel, copyVel}
++    const kernels: StableFluidsKernels = {curl, vorticity, divergence, jacobi, jacobiBlack, gradSubtract, advectVel, copyVel}
+     if (dye === 'none') return kernels
+ 
+     // ── Dye advection. Same backtrace as the velocity pass, over the dye channels. ──
+@@ -1435,6 +1447,7 @@ export function createStableFluidsPasses(
+         vorticity: mk(kernels.vorticity),
+         divergence: mk(kernels.divergence),
+         jacobi: mk(kernels.jacobi),
++        jacobiBlack: kernels.jacobiBlack ? mk(kernels.jacobiBlack) : undefined, // XM-PATCH(deterministic-fluids)
+         gradSubtract: mk(kernels.gradSubtract),
+         advectVel: mk(kernels.advectVel),
+         copyVel: mk(kernels.copyVel),
+@@ -1446,7 +1459,13 @@ export function createStableFluidsPasses(
+         ...passes,
+         solveSteps({jacobiIters, vorticity}) {
+             const steps: ComputeStep[] = [passes.curl, vorticity ?? passes.vorticity, passes.divergence]
+-            for (let i = 0; i < jacobiIters; i++) steps.push(passes.jacobi)
++            // XM-PATCH(deterministic-fluids): red-black sweeps; one sweep relaxes about as much as two Jacobi
++            // iterations, so ceil(J / 2) of them keep upstream's solve strength (and its dispatch count)
++            if (passes.jacobiBlack) {
++                for (let i = 0; i < Math.ceil(jacobiIters / 2); i++) steps.push(passes.jacobi, passes.jacobiBlack)
++            } else {
++                for (let i = 0; i < jacobiIters; i++) steps.push(passes.jacobi)
++            }
+             steps.push(passes.gradSubtract, passes.advectVel, passes.copyVel)
+             if (passes.advectDye) steps.push(passes.advectDye)
+             if (passes.copyDye) steps.push(passes.copyDye)
+diff --git b/shaders/gpu/xmClock.ts b/shaders/gpu/xmClock.ts
+new file mode 100644
+index 0000000..5dde939
+--- /dev/null
++++ b/shaders/gpu/xmClock.ts
+@@ -0,0 +1,23 @@
++/**
++ * XM-PATCH(host-clock): the clock the library's wall-clock reads use. While a renderer is driven by its host's
++ * clock (setClock), each of its frames sets the host time here before its CPU hooks run; `xmNow()` then returns that
++ * time in ms instead of `Date.now()` — idle / settle gates, grid sims stepped on the CPU and raster throttles become
++ * functions of the host's timeline, not of how fast the machine renders. Frames are synchronous per renderer, so the
++ * page-wide value is always the current frame's. Not part of the upstream library (see VENDOR.md).
++ */
++let hostMs: number | null = null
++
++/** Set by the renderer at the start of each frame: the frame's time (s) when the host drives the clock, else undefined. */
++export function xmSetHostTime(seconds: number | undefined): void {
++    hostMs = seconds === undefined ? null : seconds * 1000
++}
++
++/** True while the frame being rendered is driven by its host's clock. */
++export function xmHostDriven(): boolean {
++    return hostMs !== null
++}
++
++/** Milliseconds: the host's frame time while it drives the clock, else wall clock. */
++export function xmNow(): number {
++    return hostMs ?? Date.now()
++}
+diff --git b/shaders/gpu/xmPending.ts b/shaders/gpu/xmPending.ts
+new file mode 100644
+index 0000000..93706c1
+--- /dev/null
++++ b/shaders/gpu/xmPending.ts
+@@ -0,0 +1,19 @@
++/**
++ * XM-PATCH(pending): a page-wide count of the library's async loads in flight (image / SDF fetches, font
++ * loads, text rasters waiting on a font). A host rendering frames that must not depend on load timing
++ * (offline export) waits for `xmPendingCount() === 0` — then renders once more, since a finished load
++ * uploads its data in the next frame's onBeforeRender. Not part of the upstream library (see VENDOR.md).
++ */
++let pending = 0
++
++/** Count `p` as in flight until it settles; returns `p`. */
++export function xmTrack<T>(p: Promise<T>): Promise<T> {
++    pending++
++    p.then(() => { pending-- }, () => { pending-- })
++    return p
++}
++
++/** Async loads still in flight, page-wide. */
++export function xmPendingCount(): number {
++    return pending
++}
+diff --git a/shaders/shaders/Ascii/index.ts b/shaders/shaders/Ascii/index.ts
+index 3f46c7d..c082b5c 100644
+--- a/shaders/shaders/Ascii/index.ts
++++ b/shaders/shaders/Ascii/index.ts
+@@ -7,6 +7,8 @@ import {cellSample, charGrid, glyphFor, glyphTint} from "@coreroot/std/effects/s
+ import {createSwappableMediaTexture} from "@coreroot/gpu/kit/host/mediaLifecycle"
+ import {createCanvasRasterTarget, createFontDependentRaster, createRasterInvalidator} from "@coreroot/gpu/kit/host/canvasRaster"
+ import {transformBoolean} from "@coreroot/utilities/transformations"
++import {xmHasLocalFont} from "@coreroot/utilities/fonts" // XM-PATCH(local-fonts)
++import {xmTrack} from "@coreroot/gpu/xmPending" // XM-PATCH(pending)
+ 
+ export interface ComponentProps {
+     characters: string
+@@ -30,7 +32,10 @@ const GOOGLE_FONTS_MAP: Record<string, string> = {
+ }
+ const loadedFonts = new Set<string>()
+ async function loadAsciiFont(fontFamily: string): Promise<void> {
+-    if (loadedFonts.has(fontFamily) || !GOOGLE_FONTS_MAP[fontFamily]) return
++    if (loadedFonts.has(fontFamily) || xmHasLocalFont(fontFamily) || !GOOGLE_FONTS_MAP[fontFamily]) return // XM-PATCH(local-fonts)
++    return xmTrack(loadAsciiFontNow(fontFamily)) // XM-PATCH(pending): a real (network) load
++}
++async function loadAsciiFontNow(fontFamily: string): Promise<void> {
+     const googleFontName = GOOGLE_FONTS_MAP[fontFamily]
+     if (!document.querySelector(`link[href*="${googleFontName}"]`)) {
+         const link = document.createElement('link')
+diff --git a/shaders/shaders/Boids/index.ts b/shaders/shaders/Boids/index.ts
+index 2a1eca0..1aa8a6b 100644
+--- a/shaders/shaders/Boids/index.ts
++++ b/shaders/shaders/Boids/index.ts
+@@ -62,6 +62,8 @@ const SimParams = d.struct({
+ // the persistent decayed canvas that produces motion trails.
+ const simLayout = tgpu.bindGroupLayout({
+     agents: {storage: d.arrayOf(d.vec4f, MAX_AGENTS), access: 'mutable'},
++    // XM-PATCH(deterministic-boids): last frame's flock, read by the flocking force (see std/sim/agentForces)
++    agentsPrev: {storage: d.arrayOf(d.vec4f, MAX_AGENTS), access: 'mutable'},
+     agit: {storage: d.arrayOf(d.f32, MAX_AGENTS), access: 'mutable'},
+     accumE: {storage: d.arrayOf(d.atomic(d.u32), RES * RES), access: 'mutable'},
+     accumS: {storage: d.arrayOf(d.atomic(d.u32), RES * RES), access: 'mutable'},
+@@ -81,6 +83,12 @@ const simLayout = tgpu.bindGroupLayout({
+  */
+ export const boidsInitKernel = agents.makeClusterFormationInit(simLayout, 'boidsInit')
+ 
++/** XM-PATCH(deterministic-boids): copy the flock to `agentsPrev` before the update reads its neighbours there. */
++export const boidsSnapshotKernel = tgpu.fn([d.u32])((i) => {
++    'use gpu'
++    simLayout.$.agentsPrev[i] = d.vec4f(simLayout.$.agents[i])
++}).$name('boidsSnapshot')
++
+ // ── The composed physics + render (std/sim vocabulary) ──────────────────────────────────────
+ 
+ /**
+@@ -257,13 +265,14 @@ export const componentDefinition: GpuShaderDefinition<ComponentProps> = defineSt
+             return {
+                 pipelines: {
+                     init: {kernel: boidsInitKernel, threads: 'max'},
++                    snapshot: {kernel: boidsSnapshotKernel, threads: 'agents'}, // XM-PATCH(deterministic-boids)
+                     update: {kernel: boidsUpdateKernel, threads: 'agents'},
+                     splat: render.splat,
+                     resolve: render.resolve,
+                 },
+                 // `seed` re-dispatches the one-shot spawn (runtime — no recompile).
+                 initStep: 'init',
+-                program: ['update', 'splat', 'resolve'],
++                program: ['snapshot', 'update', 'splat', 'resolve'], // XM-PATCH(deterministic-boids)
+             }
+         },
+         frame: (sys, {getCpuValue}) => {
+diff --git a/shaders/shaders/Fog/index.ts b/shaders/shaders/Fog/index.ts
+index 848a882..f77eabe 100644
+--- a/shaders/shaders/Fog/index.ts
++++ b/shaders/shaders/Fog/index.ts
+@@ -170,7 +170,7 @@ export const componentDefinition: GpuShaderDefinition<ComponentProps> = defineSt
+                 seed: (f) => f.num('seed', 0),
+                 warm: {
+                     steps: WARM_STEPS, jacobiIters: WARM_JACOBI_ITERS, dt: 0.1,
+-                    startTime: () => Math.random() * 60,
++                    startTime: () => 23.7, // XM-PATCH(host-clock): a fixed warm-up phase (was Math.random() * 60)
+                     values: (t, f) => ({
+                         dt: 0.1, time: t, ...fieldValues(f),
+                         cursorX: 0, cursorY: 0, cursorVelX: 0, cursorVelY: 0, mouseActive: 0, mouseRadSq: 1,
+diff --git a/shaders/shaders/Form3D/index.ts b/shaders/shaders/Form3D/index.ts
+index 25c37d0..02f299c 100644
+--- a/shaders/shaders/Form3D/index.ts
++++ b/shaders/shaders/Form3D/index.ts
+@@ -141,7 +141,7 @@ export const componentDefinition: GpuShaderDefinition<ComponentProps> = defineSt
+         let lastJson = ''
+         let cfg: Record<string, number> = (() => { try { return JSON.parse(getCpuValue('shape3d') as string) } catch { return {} } })()
+         const num = (k: string, f: number): number => (typeof cfg[k] === 'number' ? cfg[k] : f)
+-        const drive = (deltaTime: number) => {
++        const drive = (deltaTime: number, xmTime?: number) => {
+             const raw = getCpuValue('shape3d')
+             if (typeof raw === 'string') { if (raw !== lastJson) { lastJson = raw; try { cfg = JSON.parse(raw) } catch { /* keep */ } } }
+             else if (raw && typeof raw === 'object') cfg = raw as Record<string, number>
+@@ -162,9 +162,16 @@ export const componentDefinition: GpuShaderDefinition<ComponentProps> = defineSt
+             }
+ 
+             const dfl = SPIN_DEFAULTS[shapeType] ?? {}
+-            spinX += deltaTime * speed * num('spinX', dfl.spinX ?? 0) * TAU_RATE
+-            spinY += deltaTime * speed * num('spinY', dfl.spinY ?? 0) * TAU_RATE
+-            spinZ += deltaTime * speed * num('spinZ', dfl.spinZ ?? 0) * TAU_RATE
++            // XM-PATCH(abs-clock): from the host's absolute clock when there is one
++            if (xmTime !== undefined) {
++                spinX = xmTime * speed * num('spinX', dfl.spinX ?? 0) * TAU_RATE
++                spinY = xmTime * speed * num('spinY', dfl.spinY ?? 0) * TAU_RATE
++                spinZ = xmTime * speed * num('spinZ', dfl.spinZ ?? 0) * TAU_RATE
++            } else {
++                spinX += deltaTime * speed * num('spinX', dfl.spinX ?? 0) * TAU_RATE
++                spinY += deltaTime * speed * num('spinY', dfl.spinY ?? 0) * TAU_RATE
++                spinZ += deltaTime * speed * num('spinZ', dfl.spinZ ?? 0) * TAU_RATE
++            }
+             const aX = num('rotX', dfl.rotX ?? 0) * DEG + spinX
+             const aY = num('rotY', dfl.rotY ?? 0) * DEG + spinY
+             const aZ = num('rotZ', dfl.rotZ ?? 0) * DEG + spinZ
+@@ -194,7 +201,7 @@ export const componentDefinition: GpuShaderDefinition<ComponentProps> = defineSt
+             }
+         }
+         drive(0)
+-        onBeforeRender((fp: {deltaTime?: number}) => drive(fp?.deltaTime ?? 0))
++        onBeforeRender((fp: {deltaTime?: number; xmTime?: number}) => drive(fp?.deltaTime ?? 0, fp?.xmTime)) // XM-PATCH(abs-clock)
+ 
+         // ── March + surface UV + lighting: a visible staged composition — the kit's
+         // param-threaded sphere-march (camera + normal live inside it), the per-shape surfaceUV
+diff --git a/shaders/shaders/StudioBackground/index.ts b/shaders/shaders/StudioBackground/index.ts
+index df812ab..49b0020 100644
+--- a/shaders/shaders/StudioBackground/index.ts
++++ b/shaders/shaders/StudioBackground/index.ts
+@@ -250,8 +250,10 @@ export const componentDefinition: GpuShaderDefinition<ComponentProps> = defineSt
+         let ambTime = 0
+         let lastSeed = Number.NaN
+         let orbitConsts: {sizeSq: number; radiusX: number; radiusY: number; freqX: number; freqY: number; phaseX: number; phaseY: number}[] = []
+-        params.onBeforeRender((fp?: {deltaTime?: number}) => {
+-            ambTime += (fp?.deltaTime ?? 0) * ((params.getCpuValue('ambientSpeed') as number) ?? 2)
++        params.onBeforeRender((fp?: {deltaTime?: number; xmTime?: number}) => {
++            // XM-PATCH(abs-clock): from the host's absolute clock when there is one
++            const ambSpeed = (params.getCpuValue('ambientSpeed') as number) ?? 2
++            ambTime = fp?.xmTime !== undefined ? fp.xmTime * ambSpeed : ambTime + (fp?.deltaTime ?? 0) * ambSpeed
+             const seed = (params.getCpuValue('seed') as number) ?? 0
+             if (seed !== lastSeed) {
+                 lastSeed = seed
+diff --git a/shaders/std/effects/blurs.ts b/shaders/std/effects/blurs.ts
+index 55d8abe..d81b271 100644
+--- a/shaders/std/effects/blurs.ts
++++ b/shaders/std/effects/blurs.ts
+@@ -1728,9 +1728,13 @@ export const swayUV = tgpu.fn([d.vec2f, d.f32, d.f32], d.vec2f)(
+ export function frameSway(slots: {amount: PropRef; field: string}): (params: GpuFragmentParams) => Expr {
+     return (params) => {
+         let acc = 0
+-        params.onBeforeRender(({deltaTime}) => {
++        params.onBeforeRender((fp) => {
++            const {deltaTime} = fp
++            const xmTime = (fp as {xmTime?: number}).xmTime
+             const w = (params.getCpuValue(slots.amount.name) as number) ?? 0
+-            acc += deltaTime * (w > 0 ? 1 : 0)
++            // XM-PATCH(abs-clock): with the host's absolute clock the sway runs on it (still frozen while amount is 0)
++            if (xmTime !== undefined) { if (w > 0) acc = xmTime }
++            else acc += deltaTime * (w > 0 ? 1 : 0)
+             params.setExtraField(slots.field, acc)
+         })
+         return call(swayUV, 'swayUV', [params.ctx.uv, params.uniforms[slots.amount.name], params.uniforms[slots.field]])
+diff --git a/shaders/std/effects/color.ts b/shaders/std/effects/color.ts
+index c9b85a0..3a1c517 100644
+--- a/shaders/std/effects/color.ts
++++ b/shaders/std/effects/color.ts
+@@ -235,9 +235,13 @@ export function filmGrain(slots: {strength: ArgSpec; bias: ArgSpec; animated: Pr
+         // (reset on recompose).
+         setup: (params) => {
+             let animTimeAcc = 0
+-            params.onBeforeRender(({deltaTime}) => {
++            params.onBeforeRender((fp) => {
++                const {deltaTime} = fp
++                const xmTime = (fp as {xmTime?: number}).xmTime
+                 const on = ((params.getCpuValue(slots.animated.name) as number) > 0) ? 1 : 0
+-                animTimeAcc += deltaTime * on * 10.0
++                // XM-PATCH(abs-clock): with the host's absolute clock the drift runs on it (still frozen while off)
++                if (xmTime !== undefined) { if (on) animTimeAcc = xmTime * 10.0 }
++                else animTimeAcc += deltaTime * on * 10.0
+                 params.setExtraField('animTime', animTimeAcc)
+             })
+         },
+diff --git a/shaders/std/lower.ts b/shaders/std/lower.ts
+index c9beb81..2f6e25d 100644
+--- a/shaders/std/lower.ts
++++ b/shaders/std/lower.ts
+@@ -393,7 +393,10 @@ export function defineStd<T extends ComponentProps>(definition: StdDefinition<T>
+     if ('props' in definition && definition.props) validatePropNames(definition.name, definition.props as Record<string, unknown>)
+     const lowered = lowerStd(definition)
+     const revision = wgslRevision(definition as StdDefinition<ComponentProps>)
+-    return revision ? {...lowered, revision} : lowered
++    // XM-PATCH(role): keep the declared role ('simulation', 'shapeEffect', 'media', …) on the lowered definition as
++    // `xmRole`, for a host that has to know which components keep state between frames (kit/sfx.ts)
++    const withRole = {...lowered, xmRole: (definition as {role?: string}).role} as GpuShaderDefinition<T>
++    return revision ? {...withRole, revision} : withRole
+ }
+ 
+ type InferredRole = 'shape' | 'warp' | 'custom' | 'generator' | 'filter'
+diff --git a/shaders/std/paint/media.ts b/shaders/std/paint/media.ts
+index 742d45b..6af7686 100644
+--- a/shaders/std/paint/media.ts
++++ b/shaders/std/paint/media.ts
+@@ -31,6 +31,12 @@ import {
+     decodeImageSource,
+ } from '../../gpu/kit/host/mediaLifecycle'
+ import {registerNaturalSize} from '../../utilities/naturalSize'
++import {xmTrack} from '../../gpu/xmPending'
++
++// XM-PATCH(media-cache): images decoded on this page, by URL. A composition rebuilt with the same URL (a host
++// restarting its simulations, a recompose) writes the cached pixels in its first frame instead of loading again,
++// so no frame after a rebuild renders without the image. Kept for the page's life (an MV uses a handful).
++const xmImageCache = new Map<string, {source: ImageBitmap | HTMLCanvasElement; width: number; height: number; naturalWidth: number; naturalHeight: number}>()
+ import type {PropRef} from '../values'
+ 
+ /** What a media word returns: the GPU half of a definition. Spread it into `defineShader({...})`. */
+@@ -97,18 +103,25 @@ export function imageMedia(opts: MediaFitSlots & {
+         createUrlSourceLoader(params, {
+             prop: opts.src.name,
+             async load(url, loadCtx) {
+-                const decoded = await decodeImageSource(url)
+-                if (loadCtx.isDisposed()) {
+-                    decoded.close()
++                // XM-PATCH(media-cache): synchronous when decoded before (no await before the write)
++                const cached = xmImageCache.get(url)
++                if (cached) {
++                    loadCtx.commit()
++                    registerNaturalSize(url, cached.naturalWidth, cached.naturalHeight)
++                    tex.ensureSize(cached.width, cached.height)
++                    tex.write(cached.source)
+                     return
+                 }
++                const decoded = await xmTrack(decodeImageSource(url)) // XM-PATCH(pending)
++                // XM-PATCH(media-cache): kept (not closed) for the next composition of this URL
++                xmImageCache.set(url, {source: decoded.source, width: decoded.width, height: decoded.height, naturalWidth: decoded.naturalWidth, naturalHeight: decoded.naturalHeight})
++                if (loadCtx.isDisposed()) return
+                 loadCtx.commit()
+                 // Layout measures the source's INTRINSIC size (a 32px SVG logo slots at 32px), not
+                 // the raster the texture is baked at — for a bitmap the two are the same.
+                 registerNaturalSize(url, decoded.naturalWidth, decoded.naturalHeight)
+                 tex.ensureSize(decoded.width, decoded.height)
+                 tex.write(decoded.source)
+-                decoded.close()
+             },
+             onError: opts.onError,
+         })
+diff --git a/shaders/std/sim/agentForces.ts b/shaders/std/sim/agentForces.ts
+index 2183bd1..71807bf 100644
+--- a/shaders/std/sim/agentForces.ts
++++ b/shaders/std/sim/agentForces.ts
+@@ -432,7 +432,13 @@ export interface SteeringLayout {
+ // The Reynolds triple — separation / alignment / cohesion over ONE brute-force neighbour scan
+ // (the static-MAX loop bound with the runtime-count early break is engine policy inside the
+ // part: the count slider never recompiles). Each steer is maxForce-clamped.
+-function flocking(layout: SteeringLayout, cfg: {maxAgents: number}): AgentSteer2 {
++// XM-PATCH(deterministic-boids): the neighbours come from `agentsPrev`, a snapshot of the flock taken before this
++// frame's update (upstream read `agents` while the same dispatch rewrote it — "this frame's or last frame's
++// neighbour", decided by GPU scheduling; a flock is chaotic, so two runs of the same frames diverged completely).
++export interface FlockingLayout {
++    readonly $: SteeringLayout['$'] & {readonly agentsPrev: Vec4StateArray}
++}
++function flocking(layout: FlockingLayout, cfg: {maxAgents: number}): AgentSteer2 {
+     const MAX_AGENTS = cfg.maxAgents
+     return tgpu.fn([d.vec2f, d.vec2f, d.f32], d.vec2f)((pos, vel, maxSpeedI) => {
+         'use gpu'
+@@ -446,7 +452,7 @@ function flocking(layout: SteeringLayout, cfg: {maxAgents: number}): AgentSteer2
+         // so no index comparison is needed.
+         for (let j = 0; j < MAX_AGENTS; j++) {
+             if (d.f32(j) >= prm.count) { break }
+-            const other = layout.$.agents[d.u32(j)]
++            const other = layout.$.agentsPrev[d.u32(j)] // XM-PATCH(deterministic-boids)
+             const opos = d.vec2f(other.x, other.y)
+             const off = pos.sub(opos)
+             const dsq = std.dot(off, off)
+diff --git a/shaders/std/sim/fluids.ts b/shaders/std/sim/fluids.ts
+index 21e7085..f154e3c 100644
+--- a/shaders/std/sim/fluids.ts
++++ b/shaders/std/sim/fluids.ts
+@@ -1,3 +1,4 @@
++import {xmNow} from '../../gpu/xmClock' // XM-PATCH(host-clock)
+ /**
+  * std/sim/fluids — smoke, ink and fog that flow.
+  *
+@@ -291,7 +292,7 @@ export function fluidSim<TParams>(
+ 
+             const tracker = cfg.pointer ? createPointerVelocityTracker(cfg.pointer) : null
+             const maxDt = cfg.maxDeltaTime ?? 0.033
+-            let lastTime = Date.now()
++            let lastTime = xmNow() // XM-PATCH(host-clock)
+             let elapsed = 0
+             const num = (key: string, fallback: number): number => {
+                 const v = getCpuValue(key)
+@@ -304,7 +305,7 @@ export function fluidSim<TParams>(
+                 getComputeNodes: (frameParams: unknown): ComputeStep[] | null => {
+                     const fp = frameParams as FluidFrameParams
+                     const preNodes = containerParts?.preFrame ? containerParts.preFrame(frameParams) : null
+-                    const now = Date.now()
++                    const now = xmNow() // XM-PATCH(host-clock)
+                     const dt = Math.min(fp.deltaTime ?? (now - lastTime) / 1000, maxDt)
+                     lastTime = now
+                     if (dt < 0.001) return preNodes
+diff --git a/shaders/std/sim/grids.ts b/shaders/std/sim/grids.ts
+index 127e5fa..7b2b316 100644
+--- a/shaders/std/sim/grids.ts
++++ b/shaders/std/sim/grids.ts
+@@ -1,3 +1,4 @@
++import {xmNow} from '../../gpu/xmClock' // XM-PATCH(host-clock)
+ /**
+  * std/sim/grids — a grid of cells advanced by a program of named stages.
+  *
+@@ -147,7 +148,7 @@ export function gridSim(
+                     const fp = frameParams as GridFrameParams
+                     const dt = Math.min(fp.deltaTime ?? 0, cfg.clampDt)
+                     if (cfg.zeroDt === 'skip' && dt <= 0) return null
+-                    const f: GridFrame = {dt, now: Date.now(), num, getCpuValue, frameParams: fp}
++                    const f: GridFrame = {dt, now: xmNow(), num, getCpuValue, frameParams: fp} // XM-PATCH(host-clock)
+                     const nodes: ComputeStep[] = []
+                     for (const s of cfg.stages) s.tick?.(f)
+                     for (const s of cfg.stages) if (s.skip?.(f)) return null
+@@ -460,11 +461,13 @@ export const hostStep = (name: string, run: (f: HostFrame) => void | 'skip'): Ho
+  */
+ // Wall-clock dt (clamped), then each named step in order until one skips.
+ export function hostGridProgram(opts: {clampDt: number; steps: HostStep[]}): (fp: unknown) => void {
+-    let lastTime = Date.now()
++    let lastTime = xmNow() // XM-PATCH(host-clock)
+     return (fp) => {
+         const {pointer} = fp as {pointer: {x: number; y: number}}
+-        const now = Date.now()
+-        const dt = Math.min((now - lastTime) / 1000, opts.clampDt)
++        // XM-PATCH(host-clock): the frame's own delta (its timeline), like every GPU sim; the wall clock only without one
++        const now = xmNow()
++        const fdt = (fp as {deltaTime?: number}).deltaTime
++        const dt = Math.min(fdt ?? (now - lastTime) / 1000, opts.clampDt)
+         lastTime = now
+         const f: HostFrame = {dt, now, pointer, frameParams: fp}
+         for (const s of opts.steps) if (s.run(f) === 'skip') return
+diff --git a/shaders/utilities/device.ts b/shaders/utilities/device.ts
+index 8736e7b..de3f51c 100644
+--- a/shaders/utilities/device.ts
++++ b/shaders/utilities/device.ts
+@@ -15,7 +15,15 @@
+  * screen above ~1366 CSS px (2-in-1s, large tablets driving displays) is treated
+  * as a desktop GPU. SSR → false (desktop default).
+  */
++// XM-PATCH(desktop-quality): a host that renders frames for a video (kit/sfx.ts) wants one quality everywhere — not the
++// phone path on a touchscreen laptop or a small window, which would make a preview differ from the export
++let xmDesktopOnly = false
++export function xmForceDesktopQuality(): void {
++    xmDesktopOnly = true
++}
++
+ export function isMobileGpuViewport(): boolean {
++    if (xmDesktopOnly) return false // XM-PATCH(desktop-quality)
+     if (typeof window === 'undefined') return false
+     const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+     const cssLong = Math.max(window.innerWidth || 0, window.innerHeight || 0)
+diff --git a/shaders/utilities/fonts.ts b/shaders/utilities/fonts.ts
+index 54ed4a1..69ba54a 100644
+--- a/shaders/utilities/fonts.ts
++++ b/shaders/utilities/fonts.ts
+@@ -1,3 +1,4 @@
++import {xmTrack} from '../gpu/xmPending'
+ /**
+  * Google Fonts runtime loading.
+  *
+@@ -14,6 +15,16 @@ export function googleFontCss2Url(family: string, weight: number = 400, italic:
+     return url
+ }
+ 
++/**
++ * XM-PATCH(local-fonts): true when the page registered this family itself (a FontFace in document.fonts that has
++ * loaded, e.g. the engine's own fonts) — it is used as is, with no Google Fonts request.
++ */
++export function xmHasLocalFont(family: string): boolean {
++    if (typeof document === 'undefined' || !document.fonts) return false
++    for (const f of document.fonts) if (f.family.replace(/^["']|["']$/g, '') === family && f.status === 'loaded') return true
++    return false
++}
++
+ // Dedupe: fonts that have finished loading, and loads currently in flight.
+ const loadedFonts = new Set<string>()
+ const pendingLoads = new Map<string, Promise<void>>()
+@@ -29,6 +40,7 @@ export function loadGoogleFont(family: string, weight: number = 400, italic: boo
+ 
+     const key = `${family}|${weight}|${italic}`
+     if (loadedFonts.has(key)) return Promise.resolve()
++    if (xmHasLocalFont(family)) return Promise.resolve() // XM-PATCH(local-fonts)
+     const pending = pendingLoads.get(key)
+     if (pending) return pending
+ 
+@@ -42,6 +54,7 @@ export function loadGoogleFont(family: string, weight: number = 400, italic: boo
+             pendingLoads.delete(key)
+         })
+     pendingLoads.set(key, promise)
++    xmTrack(promise) // XM-PATCH(pending)
+     return promise
+ }
+ 
+diff --git a/shaders/utilities/sdfBounds.ts b/shaders/utilities/sdfBounds.ts
+index 0fbc80e..5e41ba9 100644
+--- a/shaders/utilities/sdfBounds.ts
++++ b/shaders/utilities/sdfBounds.ts
+@@ -1,3 +1,4 @@
++import {xmTrack} from '../gpu/xmPending'
+ // Content-tight bounds for custom-SVG shape effects (core half of WS4 SVG).
+ //
+ // `shapeContentExtent` (shapeEffectBounds.ts) is sync and can't load the SDF, so it reads a cache
+@@ -13,7 +14,7 @@
+ 
+ // Edge length of the square SVG-SDF data field. Must match the kit's SDF texture size
+ // (`gpu/kit/sdf.ts` SVG_SDF_SIZE) — the .bin fields this scans are generated at that resolution.
+-const SVG_SDF_SIZE = 512
++const SVG_SDF_SIZE = 1024 // XM-PATCH(sdf-1024): must match gpu/kit/sdf.ts
+ 
+ export interface SdfContentExtent { hwf: number; hhf: number }  // half-extents in field-UV (full = 0.5)
+ 
+@@ -31,7 +32,7 @@ export function getSdfContentBounds(url: string, onReady?: () => void): SdfConte
+     if (!url) return null
+     if (url in cache) return cache[url]
+     if (onReady) (waiters[url] ??= []).push(onReady)
+-    if (!pending.has(url)) { pending.add(url); void scan(url) }
++    if (!pending.has(url)) { pending.add(url); void xmTrack(scan(url)) /* XM-PATCH(pending) */ }
+     return null
+ }
+ 
