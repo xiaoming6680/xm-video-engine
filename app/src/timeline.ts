@@ -17,6 +17,11 @@ export function makeTimeline(_ly: Lyrics, au: AudioData): TimelineEntry[] {
     ({ id, load: scene(file), start, end, ...extra });
   // ?sky：只载入天空示例（云海、光点、日出光束、镜头虚化，scenes/demo_sky.ts），不在默认示例里
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
+  // ?sfx=<组件名>：shaders 库的一个效果（kit/sfx.ts、scenes/demo_sfx.ts），&sfxprops=<JSON> 改 prop；
+  // ?sfx=showcase：示例场景被翻页（PagePeel）翻走，露出 3D 镀铬标题（scenes/demo_sfx_title.ts）
+  const sfx = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('sfx') : null;
+  if (sfx === 'showcase') return [E('sfx-a', 'demo', 0, 3), E('sfx-title', 'demo_sfx_title', 2, au.duration)];
+  if (sfx) return [E('demo-sfx', 'demo_sfx', 0, au.duration)];
   // ?ref=<名>：参考片逐帧复刻（scenes/ref_<名>.ts，docs/复刻配方.md），场景从 0 秒开始、本地时间对齐原片那一段
   const REF: Record<string, number> = { boot: 2.7, stack: 2.6, rhythm: 3.6, kaleido: 3.1, record: 1.65, droste: 3.2, glitch: 1.65, crash: 8.1, invader: 3.05, stage: 4.0 };
   const ref = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('ref') ?? (new URLSearchParams(location.search).has('boot') ? 'boot' : null) : null;
