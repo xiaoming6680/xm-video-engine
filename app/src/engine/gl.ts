@@ -28,6 +28,20 @@ int ssK0() { return ssTap < 0 ? 0 : ssTap; }
 int ssK1() { return ssTap < 0 ? 4 : ssTap + 1; }
 float ssWeight() { return ssTap < 0 ? 0.25 : 1.0; }`;
 
+/**
+ * The engine's renderer on `canvas` (PW x PH). Alpha and a half-float drawing buffer: the canvas doubles as the float
+ * surface kit/sfx.ts copies engine textures into WebGPU through (drawingBufferStorage needs alpha); the engine's final
+ * blit writes alpha 1, so it shows and reads back exactly as an opaque canvas.
+ */
+export function makeRenderer(canvas: HTMLCanvasElement) {
+  const r = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+  r.setPixelRatio(1);
+  r.setSize(PW, PH, false);
+  const gl = r.getContext() as WebGL2RenderingContext & { drawingBufferStorage?(format: number, w: number, h: number): void };
+  if (gl.getExtension('EXT_color_buffer_float') && gl.drawingBufferStorage) gl.drawingBufferStorage(gl.RGBA16F, PW, PH);
+  return r;
+}
+
 const RT_SCALE = new WeakMap<THREE.WebGLRenderTarget, number>();
 /** Physical px per logical px of a render target made by makeRT (1 for other targets; SCALE for the canvas). */
 export function rtScale(rt: THREE.WebGLRenderTarget | null) { return rt ? RT_SCALE.get(rt) ?? 1 : SCALE; }

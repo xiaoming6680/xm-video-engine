@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { AudioData } from './audio';
 import { Lyrics } from './lyrics';
-import { Compositor, FSPass, W, H, PW, PH, SCALE, SS_TAP, makeRT, clearRT } from './gl';
+import { Compositor, FSPass, W, H, PW, PH, SCALE, SS_TAP, makeRT, clearRT, makeRenderer } from './gl';
 import { DEFAULT_POST, Post, SHOULDER_GLSL, type PostParams } from './post';
 import { Hud } from './hud';
 import type { Cue, Frame, Scene, SceneClass, SceneCtx, PostOverrides } from './scene';
@@ -98,11 +98,10 @@ export class Engine {
   timeline: TimelineEntry[] = [];
 
   constructor(public canvas: HTMLCanvasElement, private makeTimeline: (lyrics: Lyrics, audio: AudioData) => TimelineEntry[]) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(1);
-    this.renderer.setSize(PW, PH, false);
+    this.renderer = makeRenderer(canvas);
     this.renderer.autoClear = false;
-    this.blit = new FSPass(`uniform sampler2D src; void main(){ fragColor = texture(src, vUv); }`, { src: { value: null } });
+    // (alpha 1: the canvas has an alpha channel, see gl.ts makeRenderer)
+    this.blit = new FSPass(`uniform sampler2D src; void main(){ fragColor = vec4(texture(src, vUv).rgb, 1.0); }`, { src: { value: null } });
     this.xfade = new FSPass(`uniform sampler2D a; uniform sampler2D b; uniform float k;
       void main(){ fragColor = mix(texture(a, vUv), texture(b, vUv), k); }`, { a: { value: null }, b: { value: null }, k: { value: 0 } });
     // adds a sub-frame to a sum; a non-finite pixel (a stray NaN from some shader in one sub-frame out of
