@@ -105,8 +105,9 @@ pip install numpy scipy librosa soundfile torch torchaudio audio-separator openc
 |---|---|
 | [使用指南](docs/使用指南.md) | 按键、做 MV 的每条命令、写场景入门、效果在哪、常见问题 |
 | [新项目流程](docs/新项目流程.md) | 从一首歌到发布的完整步骤和检查点 |
-| [引擎指南](docs/引擎指南.md) | 写场景：API、确定性、运动模糊、4K、排版 |
-| [模块目录](docs/模块目录.md) | 全部 2D / 3D 模块和 Python 工具 |
+| [引擎指南](docs/引擎指南.md) | 写场景：API、确定性、运动模糊、4K、排版、shaders 库效果 |
+| [模块目录](docs/模块目录.md) | 全部 2D / 3D 模块、shaders 库的效果和 Python 工具 |
+| [sfx 组件](docs/sfx组件.md) | shaders 库 200 个 WebGPU 效果的清单（玻璃 / 镀铬字、转场、模糊、流体…） |
 | [复刻配方](docs/复刻配方.md) | 复古 / 字符 / 故障 / 像素效果的零件和写法，照参考视频复刻时的对照方法 |
 | [质量验收](docs/质量验收.md) | 每轮预览查什么 |
 | [制作方法](docs/方法.md)、[TREATMENT 模板](docs/TREATMENT模板.md) | 导演手法、素材、创意方案 |
@@ -119,8 +120,9 @@ pip install numpy scipy librosa soundfile torch torchaudio audio-separator openc
 
 - 引擎核心来自 [mexicat/pdoom-video](https://github.com/mexicat/pdoom-video)（Giacomo Magnanini，MIT），MV《I'm Upping My P(doom)》的渲染引擎；中文版见 [Zh-CN-pdoom-video](https://github.com/xiaoming6680/Zh-CN-pdoom-video)
 - 效果练习照着 B 站视频《当 (•ω•) 被运行之后……》和 [guiguisocute/bad-time-mv](https://github.com/guiguisocute/bad-time-mv) 的画面手法练习，代码都是重写的，没有用它们的画面素材、音乐和文案
+- `kit/sfx.ts` 的 200 个 WebGPU 效果来自 [shader-effects-inc/shaders](https://github.com/shader-effects-inc/shaders)（Shader Effects Inc.，MIT），原样收在 `app/src/vendor/shaders`，补丁见其 `VENDOR.md`
 - `third_party/` 收录了 [Lemo-Opuscar](https://github.com/lemomo-ai/lemo-opuscar)、[Papermotion](https://github.com/francozanardi/papermotion)、[claude-animation-skill](https://github.com/buildwithhanif/claude-animation-skill)、[Clearwater](https://github.com/Aureliengmz/clearwater)、[ClaudeAnimationBase](https://github.com/JohnHeibel/ClaudeAnimationBase) 的代码（均为 MIT）
 
 ## 许可
 
-代码按 [MIT](LICENSE) 发布，版权归 Giacomo Magnanini（引擎核心）和 XIAOMING6680（扩展、工具、文档）；`third_party/` 保留各自的许可（都是 MIT）。`app/public/fonts/` 里的字体为 OFL（Hershey 单线字体为 OFL / 公有领域）。`audio/`、`data/` 里是脚本合成的测试曲，不含任何歌曲。集锦里的 MV 画面是作者自己的作品，不含歌曲音频。
+代码按 [MIT](LICENSE) 发布，版权归 Giacomo Magnanini（引擎核心）和 XIAOMING6680（扩展、工具、文档）；`third_party/` 和 `app/src/vendor/shaders/` 保留各自的许可（都是 MIT）。`app/public/fonts/` 里的字体为 OFL（Hershey 单线字体为 OFL / 公有领域）。`audio/`、`data/` 里是脚本合成的测试曲，不含任何歌曲。集锦里的 MV 画面是作者自己的作品，不含歌曲音频。

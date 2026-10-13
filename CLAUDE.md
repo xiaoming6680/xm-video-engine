@@ -13,12 +13,13 @@
 | 做 CRT / 字符画 / 故障 / 像素 / 音游 / HUD 这类效果 | `docs/复刻配方.md` 第二、三节是零件，第四节十段 `?ref` 是参考实现（看接线，不是画面标准） |
 | 用户给了参考视频、要复刻或借某个镜头 | `docs/复刻配方.md` 第五节：单帧像 + 连贯 + 运动量接近；技能 `.claude/skills/mv-refmatch` |
 | 每轮预览验收 | `docs/质量验收.md` |
+| 用 shaders 库的效果（渐变、玻璃 / 镀铬字、转场、模糊、流体…，WebGPU） | `docs/引擎指南.md` 的 shaders 一节，组件清单 `docs/sfx组件.md`，库本身 `app/src/vendor/shaders/VENDOR.md` |
 | 第三方笔刷、角色骨骼、画风说明 | `third_party/README.md` |
 | 换分析 / 抠图 / 深度模型，查许可证 | `docs/模型选型.md`（不比现有的好就不换） |
 
 ## 结构
 
-- `app/`：引擎（TypeScript + three.js，bun + Vite）。`src/config.ts` 是项目设置，`src/engine/` 核心和 2D/3D 模块，`src/kit/` 场景级辅助，`src/scenes/` 示例场景，`scripts/` 渲染脚本
+- `app/`：引擎（TypeScript + three.js，bun + Vite）。`src/config.ts` 是项目设置，`src/engine/` 核心和 2D/3D 模块，`src/kit/` 场景级辅助，`src/scenes/` 示例场景，`scripts/` 渲染脚本；`src/vendor/shaders/` 是收进来的 shaders 库（MIT，WebGPU，`kit/sfx.ts` 用它，补丁和更新方法见其 `VENDOR.md`）
 - `analysis/`：音频分析和歌词对齐（Python）。分离模型共用 `analysis/models/`（约 400 MB，不进 git）；段落草稿 `structure.py` 用 `analysis/models/songformer/` 里的独立环境（`setup_structure.py` 装，约 6 GB）。各环节选哪个模型、试过哪些没换、许可证：`docs/模型选型.md`
 - `tools/`：质检、对照、Codex 生图、素材处理、抖音合成、封面、建新项目
 - `third_party/`：5 个 MIT 开源工程的参考代码，未改写进引擎
@@ -35,5 +36,5 @@
 - **输出 BT.709**：`render.ts` 已转换并打标签；外部重新编码要保留（`douyin_mux.py` 已处理），`check_video.py` 会查
 - **字体**：基础引擎只放 OFL 字体；苹方、华文行楷这类商业字体只在具体项目里用，通过 `config.ts` 的 `EXTRA_FONTS` 加；`render.ts glyphs` 查回落到系统字体的字
 - **参考片的素材只在本机**：原片、原声、截图、对照视频放 `refs/`、`out/`（都不进 git），不发布
-- **改引擎**：在基础引擎里改并验证（`bunx tsc --noEmit -p tsconfig.json`，再渲示例场景看图），已经复制出去的项目不会自动更新，需要时手动同步
-- **来源**：引擎核心来自 mexicat/pdoom-video（MIT，Giacomo Magnanini），扩展来自 Clarity、Falling_Again、Still_Shining 三个项目；成片 `CREDITS` 注明
+- **改引擎**：在基础引擎里改并验证（`bunx tsc --noEmit -p tsconfig.json`，再渲示例场景看图），已经复制出去的项目不会自动更新，需要时手动同步。动了 `kit/sfx*.ts` 或 `src/vendor/shaders` 要跑 `bun scripts/sfx-test.ts`
+- **来源**：引擎核心来自 mexicat/pdoom-video（MIT，Giacomo Magnanini），扩展来自 Clarity、Falling_Again、Still_Shining 三个项目，`kit/sfx.ts` 的效果来自 shaders 库（shader-effects-inc/shaders，MIT，Shader Effects Inc.）；成片 `CREDITS` 注明（用了 sfx 的片子写上 shaders）
