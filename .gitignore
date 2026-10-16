@@ -10,3 +10,9 @@ assets/prompts/_codex/
 .DS_Store
 docs/archive/
 refs/
+
+# 配音：环境、模型、下载缓存只在本机（tts/setup_tts.py 装），生成的音频不进仓库
+tts/.venv-*/
+tts/models/
+tts/.cache/
+tts/out/

@@ -15,6 +15,7 @@
 | 每轮预览验收 | `docs/质量验收.md` |
 | 用 shaders 库的效果（渐变、玻璃 / 镀铬字、转场、模糊、流体…，WebGPU） | `docs/引擎指南.md` 的 shaders 一节，组件清单 `docs/sfx组件.md`，库本身 `app/src/vendor/shaders/VENDOR.md` |
 | 第三方笔刷、角色骨骼、画风说明 | `third_party/README.md` |
+| 片子要旁白配音（讲解、科普、自白） | `docs/配音.md`：VoxCPM2 造声 → 克隆读全文 → ASR 查错 → 逐字对齐，脚本在 `tts/` |
 | 换分析 / 抠图 / 深度模型，查许可证 | `docs/模型选型.md`（不比现有的好就不换） |
 
 ## 结构
@@ -22,6 +23,7 @@
 - `app/`：引擎（TypeScript + three.js，bun + Vite）。`src/config.ts` 是项目设置，`src/engine/` 核心和 2D/3D 模块，`src/kit/` 场景级辅助，`src/scenes/` 示例场景，`scripts/` 渲染脚本；`src/vendor/shaders/` 是收进来的 shaders 库（MIT，WebGPU，`kit/sfx.ts` 用它，补丁和更新方法见其 `VENDOR.md`）
 - `analysis/`：音频分析和歌词对齐（Python）。分离模型共用 `analysis/models/`（约 400 MB，不进 git）；段落草稿 `structure.py` 用 `analysis/models/songformer/` 里的独立环境（`setup_structure.py` 装，约 6 GB）。各环节选哪个模型、试过哪些没换、许可证：`docs/模型选型.md`
 - `tools/`：质检、对照、Codex 生图、素材处理、抖音合成、封面、建新项目
+- `tts/`：配音（VoxCPM2 + Qwen3-ASR / ForcedAligner）。环境和模型约 25 GB，只装在基础引擎（`tts/setup_tts.py`），不进 git，新项目共用
 - `third_party/`：5 个 MIT 开源工程的参考代码，未改写进引擎
 - `audio/`、`data/`：`tools/make_test_song.py` 生成的测试曲和数据，用来自测
 
