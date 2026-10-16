@@ -6,7 +6,8 @@ Every salient hit, typed and timed, so each one can drive something on screen in
   fx_hit (broadband non-drum impact / stab), riser (rising build into a boundary)          — other stem / mix
   bass_in / bass_out (bass drop-outs and re-entries), sub (the 808 / sub notes' attacks)   — bass stem
   stop (whole-mix drop-outs)
-  chop (vocal-stem onsets outside the sung words: the chopped vocal hooks)
+  chop (vocal-stem onsets outside the sung words: the chopped vocal hooks; none when the vocal stem is 30 dB or more
+        under the mix, i.e. an instrumental whose vocal stem is only bleed)
 Each event: {t (video s), type, s (strength 0..1), q (nearest 16th from the first downbeat), dq (ms off it),
 bar (from 0), step (0..15)}. Drum hits: spectral-flux onsets of the drums stem, typed from the band energies that rise
 at the attack and the decay (adapted from the Clarity project's events.py, with a crash class for this song).
@@ -88,6 +89,16 @@ def classify(p, dec):
     a = {b: (p[b] if p[b + "_rise"] > 3 else -99.0) for b in BANDS}
     m = max(a.values())
     hi = max(a["high"], a["air"])
+    if m < -98:   # no band rose at the attack: nothing to tell it by
+        return "perc"
+    # a snare with a kick's low end under it (on 2 and 4, 乐观自由): its body (low) above the sub, mids and wire
+    # highs up, 7+ kHz (unless a ringing hat hides its rise) below 2-7 kHz (not a cymbal on a kick), rings 50 ms
+    # or more (not a click)
+    if a["sub"] < a["low"] and a["low"] >= m - 6 and a["mid"] >= m - 6 and a["high"] >= m - 14 and \
+            (a["air"] < -98 or m - 22 <= a["air"] <= a["high"] - 2) and dec >= 50:
+        return "snare"
+    if a["low"] >= m - 3 and a["sub"] >= m - 6 and a["high"] <= m - 20:   # a kick whose weight is in 90-250 Hz
+        return "kick"
     if a["sub"] >= m - 3 and a["low"] >= m - 6:
         return "kick"
     if hi >= m - 3 and a["high"] >= m - 6 and a["air"] >= m - 8 and dec >= 280:
@@ -197,15 +208,19 @@ def main(report=False):
 
     # ---- vocal chops: vocal-stem onsets outside the sung words
     v = load(ROOT / "audio" / "stems" / "vocals.wav")
-    vt, vs = flux_onsets(v, delta=0.1, wait_s=0.09, fmin=150)
-    words = [(w["start"] - 0.06, w["end"] + 0.03) for l in lyr["lines"] for w in l["words"]]
-    ve = 20 * np.log10(frame_rms(v, SR, fps=fr, win=512) + 1e-9)
-    for t, s in zip(vt, vs):
-        if any(a <= t <= z for a, z in words):
-            continue
-        if ve[int(t * fr):int(t * fr) + int(0.05 * fr)].max() < np.percentile(ve, 90) - 24:
-            continue
-        add(t, "chop", s / (np.percentile(vs, 99) + 1e-9))
+    dbfs = lambda x: 20 * np.log10(np.sqrt(np.mean(x.astype(np.float64) ** 2)) + 1e-12)
+    if dbfs(v) < dbfs(m) - 30:   # instrumental: the vocal stem is only bleed (songs with vocals: 8-11 dB under the mix)
+        print(f"vocal stem {dbfs(v):.1f} dBFS vs mix {dbfs(m):.1f}: instrumental, no chops")
+    else:
+        vt, vs = flux_onsets(v, delta=0.1, wait_s=0.09, fmin=150)
+        words = [(w["start"] - 0.06, w["end"] + 0.03) for l in lyr["lines"] for w in l["words"]]
+        ve = 20 * np.log10(frame_rms(v, SR, fps=fr, win=512) + 1e-9)
+        for t, s in zip(vt, vs):
+            if any(a <= t <= z for a, z in words):
+                continue
+            if ve[int(t * fr):int(t * fr) + int(0.05 * fr)].max() < np.percentile(ve, 90) - 24:
+                continue
+            add(t, "chop", s / (np.percentile(vs, 99) + 1e-9))
 
     events.sort(key=lambda e: e["t"])
     (DATA / "events.json").write_text(json.dumps(dict(events=events), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
