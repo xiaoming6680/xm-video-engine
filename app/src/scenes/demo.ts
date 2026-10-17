@@ -1,6 +1,6 @@
 // 示例场景：演示引擎的基本用法，新项目可以删掉。
 //   * 全屏着色器背景（FSPass，调色板常量 C_INK / C_SIGNAL，底鼓脉冲 f.a.kick）
-//   * Canvas2D 文字（F.archivo 等宽字距、中文自动回落到思源黑体）
+//   * Canvas2D 文字（F.sans 默认字体、中文自动回落到思源黑体）
 //   * 逐词歌词（Lyrics.wordProgress：唱到哪个词亮到哪个词）
 //   * 跟着小节落下的方块，并把每次落地登记成 cue（render.ts cues + tools/qa/cuecheck.py 核对卡点）
 // 输出必须只取决于 f.t（确定性）：导出时每帧会按任意顺序渲染多个子帧做运动模糊。
@@ -43,9 +43,9 @@ export default class Demo extends Scene {
     this.text.clear();
     const ink = inv ? 'ink' : 'bone';
 
-    // title: width animates with the bar phase (Archivo comes in width steps 62–125)
+    // title
     c.fillStyle = rgba(ink);
-    c.font = font(F.archivo(75 + 50 * ease.outCubic(f.barPhase), 900), Math.round(Math.min(H * 0.11, W * 0.05)));
+    c.font = font(F.sans(700), Math.round(Math.min(H * 0.11, W * 0.05)));
     c.fillText('XM ENGINE 基础引擎', W * 0.07, H * 0.3);
     c.font = font(F.mono(400), Math.round(H * 0.022));
     c.fillStyle = rgba('ash');
@@ -71,7 +71,7 @@ export default class Demo extends Scene {
     // karaoke: the current line, each word lit as it is sung (none without data/lyrics.json)
     const line = lyrics.lineAt(f.t) ?? lyrics.lastLine(f.t);
     if (line && f.t < line.end + 1.5) {
-      c.font = font(F.archivo(100, 700), Math.round(Math.min(H * 0.05, W * 0.03)));
+      c.font = font(F.sans(500), Math.round(Math.min(H * 0.05, W * 0.03)));
       let lx = W * 0.07;
       for (const w of line.words) {
         const p = Lyrics.wordProgress(w, f.t);
@@ -81,6 +81,5 @@ export default class Demo extends Scene {
       }
     }
     comp.draw(renderer, this.text.upload(), out);
-    return { bloom: 0.5 };
   }
 }

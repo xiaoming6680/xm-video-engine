@@ -32,6 +32,10 @@ for (const d of EXTRA_FONTS) { DEFS.push(d); OPTIONAL.add(d.family); }
 
 /** Convenience family names. */
 export const F = {
+  /** The default text face: Archivo at its normal width (Latin, digits) with 思源黑体 behind it for Chinese. weight 300..900 */
+  sans(weight = 500): string {
+    return `Archivo-1000-${nearest(ARCHIVO_WEIGHTS as unknown as number[], weight)}`;
+  },
   /** Archivo at nearest available width/weight. width in [62..125] (percent), weight 300..900 */
   archivo(width = 100, weight = 700): string {
     const w = nearest(ARCHIVO_WIDTHS as unknown as number[], width * 10);

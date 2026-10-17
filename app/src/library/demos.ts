@@ -7,13 +7,16 @@
 //   ?ref=intro          原片前 16 小节连着复刻（粗分镜），配原声加 --song refs/kaomoji（tools/grid_song.py 建）
 import type { TimelineEntry } from '../engine/engine';
 import type { AudioData } from '../engine/audio';
+import { PDOOM_LOOK } from '../engine/post';
 
 type E = (id: string, file: string, start: number, end: number, extra?: Partial<TimelineEntry>) => TimelineEntry;
 
 const REF: Record<string, number> = { boot: 2.7, stack: 2.6, rhythm: 3.6, kaleido: 3.1, record: 1.65, droste: 3.2, glitch: 1.65, crash: 8.1, invader: 3.05, stage: 4.0 };
 
-export function demos(E: E, au: AudioData): TimelineEntry[] | null {
+// 这些场景是在旧默认后期（泛光、颗粒、暗角、色差、高光压缩）下调的，示例里照旧打开，画面和当初一样
+export function demos(E0: E, au: AudioData): TimelineEntry[] | null {
   if (typeof location === 'undefined') return null;
+  const E: E = (id, file, start, end, extra = {}) => E0(id, file, start, end, { post: PDOOM_LOOK, ...extra });
   const q = new URLSearchParams(location.search);
   if (q.has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
   if (q.has('voxel')) return [E('demo-voxel', 'demo_voxel', 0, au.duration)];

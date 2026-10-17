@@ -1,18 +1,18 @@
 import { hexToLinear } from './util';
 
 // The project palette: every project sets its own colours here (the key names stay: glsl/common.ts bakes them into
-// GLSL constants C_INK, C_BONE, C_SIGNAL …). Defaults are pdoom's: ink, bone, and one signal colour.
-// Only signal/ember are meant to glow (linear values above ~0.85 bloom).
+// GLSL constants C_INK, C_BONE, C_SIGNAL …). The defaults are neutral placeholders (greys and one plain blue),
+// not a look: choose the film's colours here first.
 export const HEX = {
-  ink: '#0A0A0B', // background black (slightly warm)
-  ink2: '#151517', // raised black (panels, paper-in-the-dark)
-  graphite: '#5E5B57', // dim lines, secondary text
-  ash: '#9C978F', // mid grey
-  bone: '#EEE9DF', // paper white, primary text
-  signal: '#FF4D12', // the one strong colour (pdoom: hazard orange; Falling_Again: VALORANT red #FF4655)
-  ember: '#FF8A3D', // hotter, lighter core of the signal
-  blood: '#C21D0B', // deep shadow of the signal
-  acid: '#D8FF3C', // spare accent
+  ink: '#0B0B0C', // background black
+  ink2: '#18181B', // raised black (panels)
+  graphite: '#5F5F66', // dim lines, secondary text
+  ash: '#9E9EA6', // mid grey
+  bone: '#F5F5F3', // white, primary text
+  signal: '#2F6BFF', // the one strong colour
+  ember: '#7FA6FF', // lighter tint of the signal
+  blood: '#1A3FA8', // deep shade of the signal
+  acid: '#FFC53D', // spare accent
 } as const;
 
 export type PaletteKey = keyof typeof HEX;

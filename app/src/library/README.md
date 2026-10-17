@@ -71,7 +71,7 @@ import { sdfText } from '../library/kit/sfx-shape';
 async init() {
   this.fx = new Sfx(this.ctx.renderer, [
     { type: 'StudioBackground' },
-    { type: 'Chrome', id: 'title', props: { shapeSdfUrl: sdfText('标题', { font: font(F.archivo(125, 900), 260) }).url, shapeType: 'svgExtrude3D' } },
+    { type: 'Chrome', id: 'title', props: { shapeSdfUrl: sdfText('标题', { font: font(F.sans(700), 260) }).url, shapeType: 'svgExtrude3D' } },
     { type: 'PagePeel', id: 'peel', props: { amount: 0 }, children: [{ type: 'EngineTexture', props: { source: 'prev' } }] },
   ]);
   await this.fx.init();                           // 设备、管线、异步加载（图片、字体、形状）
@@ -94,7 +94,7 @@ render(f, out) {
 - **输入**：`{ type: 'EngineTexture', props: { source: '名' } }` + `fx.input('名', 源)`。渲染目标按线性 HDR 传（经引擎画布中转，尺寸不能大于输出），Layer2D / 画布 / 图片按 sRGB 传。
 - **指针**：读指针的组件（流体、涟漪、拖尾）用 `fx.setPointer(x, y, active)` 脚本控制（0..1，左上原点）；真实鼠标一律不听。
 - **自定义形状**：`kit/sfx-shape.ts` 的 `sdfText` / `sdfImage` / `sdfShape` 把文字、图片、画布画的东西做成 SDF（1024²，blob URL），给任何有 `shapeSdfUrl` 的形状材质用；`shapeType: 'svgExtrude3D'` + `shape` JSON（`depth`、`bevel`、`rotX/Y/Z`）是挤出的立体。
-- **字体**：Text、Ascii 的 `fontFamily` 写引擎注册过的字体名（`F.archivo()`、`F.serif()` 返回的名字，`Plex-400`、`PressStart2P`，或 `config.ts` 的 `EXTRA_FONTS`），就直接用本地字体。写别的名字（组件默认的 Inter、Ascii 列表里的等宽字体），原库会去 Google Fonts 在线下载，断网时回落到系统字体；渲染不要依赖在线字体，要用就下载到项目里注册。
+- **字体**：Text、Ascii 的 `fontFamily` 写引擎注册过的字体名（`F.sans()`、`F.serif()` 返回的名字，`Plex-400`、`PressStart2P`，或 `config.ts` 的 `EXTRA_FONTS`），就直接用本地字体。写别的名字（组件默认的 Inter、Ascii 列表里的等宽字体），原库会去 Google Fonts 在线下载，断网时回落到系统字体；渲染不要依赖在线字体，要用就下载到项目里注册。
 - **不能逐帧导出**的：VideoTexture、WebcamTexture（按真实时间播放）、HTMLInCanvas（要活的 DOM）。视频画面用引擎自己的解码帧经 EngineTexture 喂。
 - **自己写效果**：原库的 `defineShader`（`vendor/shaders/std`，写 WGSL 或用它的原语）定义的组件，传 `new Sfx(…, layers, { components: [MyFx] })` 就能按名字和库里的组件混用。
 - **NaN**：任何组件算出的非有限像素（NaN / Inf）交回引擎前都变成透明黑，不会被泛光扩成黑斑。

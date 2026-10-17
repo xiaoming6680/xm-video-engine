@@ -1,5 +1,6 @@
 // Global post-processing: bloom + halation, chromatic aberration, tone shoulder,
 // film grain, vignette, fades/flash. Operates on the composited HDR (linear) frame.
+// Every look is off by default (DEFAULT_POST): a scene comes out as drawn until it asks for bloom, grain, a shoulder …
 import * as THREE from 'three';
 import { FSPass, makeRT, W, H, SCALE } from './gl';
 
@@ -40,6 +41,9 @@ export interface PostParams {
   radial: number;
   /** 0..1 film grade of the picture (not the HUD): a little log contrast, cool shadows, warm highlights. */
   grade: number;
+  /** 0..1 soft highlight roll-off (pdoom's filmic shoulder: above ~0.72 linear compresses, white lands near 242/255).
+   * 0 = none: what the scene draws comes out as drawn, white is white. Scenes with glowing HDR values want ~1. */
+  shoulder: number;
   // ---- retro / signal looks (all off by default; see docs/模块目录.md) ----
   /** CRT tube 0..1: curved glass, scanlines, RGB grille, flicker, a rounded black bezel. The HUD is on the glass too. */
   crt: number;
@@ -98,14 +102,14 @@ export const RISO_INKS: { paper: string; inks: string[] }[] = [
 
 export const DEFAULT_POST: PostParams = {
   exposure: 1,
-  bloom: 0.55,
+  bloom: 0,
   bloomThreshold: 0.85,
   bloomKnee: 0.5,
   bloomRadius: 0.75,
-  halation: 0.25,
-  ca: 1.2,
-  grain: 0.055,
-  vignette: 0.35,
+  halation: 0,
+  ca: 0,
+  grain: 0,
+  vignette: 0,
   hud: 1,
   watermark: 0,
   paper: 0,
@@ -115,6 +119,7 @@ export const DEFAULT_POST: PostParams = {
   zoom: 1,
   invert: 0,
   grade: 0,
+  shoulder: 0,
   fisheye: 0,
   radial: 0,
   crt: 0,
@@ -138,6 +143,10 @@ export const DEFAULT_POST: PostParams = {
   risoShift: 3,
   risoInks: 0,
 };
+
+/** The old defaults (pdoom's film look: bloom, halation, fringes, grain, vignette, the highlight shoulder). Opt in per entry
+ * (`{ …, post: PDOOM_LOOK }` in timeline.ts) or per scene (`return { ...PDOOM_LOOK, bloom: 0.8 }`); the effects library's demos use it. */
+export const PDOOM_LOOK: Partial<PostParams> = { bloom: 0.55, halation: 0.25, ca: 1.2, grain: 0.055, vignette: 0.35, shoulder: 1 };
 
 /** The retro post parameters (uniform names = PostParams keys). */
 const RETRO = ['crt', 'crtCurve', 'crtLines', 'crtOff', 'crtNoise', 'glitch', 'glitchSeed', 'glitchSort', 'vhs', 'bw', 'bwThreshold', 'pixel', 'pixelLevels', 'pixelGrid', 'letterbox', 'riso', 'risoDot', 'risoShift'] as const;
@@ -242,7 +251,7 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
       }`, { src: { value: null }, prev: { value: null }, texel: { value: new THREE.Vector2() }, radius: { value: 1 } });
     this.final = new FSPass(/* glsl */ `
       uniform sampler2D src; uniform sampler2D bloomTex; uniform sampler2D haloTex; uniform sampler2D hudTex; uniform sampler2D zhTex;
-      uniform float exposure, bloom, halation, ca, grain, vignette, hud, fade, flash, time, zoom, invert, zhOn, grade, fisheye, radial;
+      uniform float exposure, bloom, halation, ca, grain, vignette, hud, fade, flash, time, zoom, invert, zhOn, grade, fisheye, radial, shoulderK;
       uniform float ${RETRO.join(', ')};
       uniform vec2 shake; uniform vec2 res;
       uniform vec3 risoPaper, risoInk0, risoInk1, risoInk2; uniform mat3 risoM; uniform float risoN;
@@ -390,7 +399,7 @@ ${SCALE === 1 ? `        c += texture(src, vUv + texel * vec2(-1, -1)).rgb; c +=
         col = mix(col, h.rgb / max(h.a, 1e-4), h.a * hud);
         // an optional full-frame Canvas2D overlay over the HUD (straight alpha)
         if (zhOn > 0.5 && !tube) { vec4 z = texture(zhTex, vUv); col = mix(col, z.rgb, z.a); }
-        col = shoulder(col);
+        col = mix(col, shoulder(col), shoulderK);
         if (riso > 0.0) {
           // each ink sampled a little off (mis-registration), screened at its own angle, multiplied on the paper
           vec2 sh = vec2(risoShift) / res;
@@ -483,8 +492,8 @@ ${SCALE === 1 ? `        float g1 = hash12(gl_FragCoord.xy + fract(time * 13.37)
         fragColor = vec4(sat(s), 1.0);
       }`, {
       src: { value: null }, bloomTex: { value: null }, haloTex: { value: null }, hudTex: { value: null }, zhTex: { value: null }, zhOn: { value: 0 },
-      exposure: { value: 1 }, bloom: { value: 0.5 }, halation: { value: 0.2 }, ca: { value: 1 }, grain: { value: 0.05 },
-      vignette: { value: 0.3 }, hud: { value: 1 }, fade: { value: 0 }, flash: { value: 0 }, time: { value: 0 },
+      exposure: { value: 1 }, bloom: { value: 0 }, halation: { value: 0 }, ca: { value: 0 }, grain: { value: 0 },
+      vignette: { value: 0 }, shoulderK: { value: 0 }, hud: { value: 1 }, fade: { value: 0 }, flash: { value: 0 }, time: { value: 0 },
       zoom: { value: 1 }, invert: { value: 0 }, grade: { value: 0 }, fisheye: { value: 0 }, radial: { value: 0 }, shake: { value: new THREE.Vector2() }, res: { value: new THREE.Vector2(W, H) },
       ...Object.fromEntries(RETRO.map((k) => [k, { value: DEFAULT_POST[k] }])),
       risoPaper: { value: new THREE.Vector3() }, risoInk0: { value: new THREE.Vector3() }, risoInk1: { value: new THREE.Vector3() }, risoInk2: { value: new THREE.Vector3() },
@@ -539,6 +548,7 @@ ${SCALE === 1 ? `        float g1 = hash12(gl_FragCoord.xy + fract(time * 13.37)
     f.fisheye!.value = p.fisheye ?? 0;
     f.radial!.value = p.radial ?? 0;
     f.grade!.value = p.grade;
+    f.shoulderK!.value = p.shoulder ?? 0;
     for (const k of RETRO) f[k]!.value = p[k] ?? DEFAULT_POST[k];
     if ((p.riso ?? 0) > 0) {
       const inks = p.risoInks ?? 0;
