@@ -22,7 +22,7 @@ export const PAPER = '#f6f1e7';
 /**
  * Hand-written Chinese face. Still_Shining used the user's 华文行楷 (STXingkai, commercial: add it per project via
  * src/config.ts EXTRA_FONTS); without it the text falls back to Noto Serif SC. An OFL brush face (Zhi Mang Xing,
- * Ma Shan Zheng, docs/方法.md) works too: put the file in public/fonts and its family here.
+ * Ma Shan Zheng, docs/archive/方法.md) works too: put the file in public/fonts and its family here.
  */
 export const HAND_ZH = '"STXingkai", "NotoSerifSC-600"';
 

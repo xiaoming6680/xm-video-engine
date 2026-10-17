@@ -1,4 +1,4 @@
-"""目标帧和渲染帧左右拼在一起，方便逐项对照（docs/方法.md 第一节）。
+"""目标帧和渲染帧左右拼在一起，方便逐项对照（docs/archive/方法.md 第一节）。
 
 用法：
   python tools/compare.py 目标.png 渲染.png -o out/wip/compare.png [--height 720] [--diff]
