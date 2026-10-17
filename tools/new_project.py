@@ -2,9 +2,10 @@
 
   python tools/new_project.py ../我的新MV [--vertical]
 
-复制：app/（不含 node_modules）、analysis/（不含 models、work、setup_structure.py；分离模型和 SongFormer 环境共用基础引擎的）、tools/、tts/（配音脚本，不含环境和模型，共用基础引擎的）、.claude/skills/、docs/ 里的模板和清单、LICENSE（→ LICENSE.engine）；
-建好 audio/ data/ assets/ out/ refs/；docs/TREATMENT.md 从模板来；写一份项目的 CLAUDE.md（流程和画面标准怎么定，指回基础引擎的文档）；
+复制：app/（不含 node_modules、效果库 src/library/ 和它的测试 sfxtest.html、scripts/sfx-test.ts、tests/）、analysis/（不含 models、work、setup_structure.py；分离模型和 SongFormer 环境共用基础引擎的）、tools/、tts/（配音脚本，不含环境和模型，共用基础引擎的）、.claude/skills/、docs/ 里的 TREATMENT 模板、LICENSE（→ LICENSE.engine）；
+建好 audio/ data/ assets/ out/ refs/；写一份项目的 CLAUDE.md（流程和画面标准怎么定，指回基础引擎的文档）；
 参考视频放 refs/，.gitignore 让它们不进仓库；--vertical 把 config.ts 改成 1080×1920。
+要用效果库里的某个模块：把它（和它 import 的库内文件）按原路径复制进新项目的 app/src/library/，import 不用改。
 目标目录已存在且不是空的就停下，不覆盖任何东西。之后：
   cd <项目>/app && bun install
   把歌放成 audio/song.wav，跑 analysis/ 的脚本生成 data/（见 docs/新项目流程.md）
@@ -18,6 +19,8 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent.parent
 SKIP = shutil.ignore_patterns("node_modules", "__pycache__", "models", "work", "*.log", "_codex",
                               "setup_structure.py")  # installs into the base engine only (shared)
+# the effects library and its tests stay in the base engine: a project copies in the modules it uses
+SKIP_APP = shutil.ignore_patterns("node_modules", "__pycache__", "*.log", "library", "sfxtest.html", "sfx-test.ts", "tests")
 SKIP_TTS = shutil.ignore_patterns("__pycache__", "models", ".venv-*", ".cache", "out", "setup_tts.py")
 
 
@@ -31,7 +34,7 @@ def main() -> None:
         sys.exit(f"{dst} 已存在且不是空的，不覆盖。换个目录，或先自己清空。")
     dst.mkdir(parents=True, exist_ok=True)
 
-    shutil.copytree(BASE / "app", dst / "app", ignore=SKIP)
+    shutil.copytree(BASE / "app", dst / "app", ignore=SKIP_APP)
     shutil.copytree(BASE / "analysis", dst / "analysis", ignore=SKIP)
     shutil.copytree(BASE / "tools", dst / "tools", ignore=SKIP)
     shutil.copytree(BASE / "tts", dst / "tts", ignore=SKIP_TTS)  # 配音（旁白类片子用）

@@ -6,35 +6,22 @@ import type { SceneClass } from './engine/scene';
 import type { Lyrics } from './engine/lyrics';
 import type { AudioData } from './engine/audio';
 
-const modules = import.meta.glob<{ default: SceneClass }>('./scenes/*.ts');
+// src/library/scenes/ 是效果库（只在基础引擎里有）；从效果库按原路径复制过来的场景也能直接用名字载入
+const modules = import.meta.glob<{ default: SceneClass }>(['./scenes/*.ts', './library/scenes/*.ts']);
 const scene = (name: string) => () => {
-  const m = modules[`./scenes/${name}.ts`];
+  const m = modules[`./scenes/${name}.ts`] ?? modules[`./library/scenes/${name}.ts`];
   return m ? m() : Promise.reject(new Error(`scene module not found: scenes/${name}.ts`));
 };
+// 效果库的示例入口（?ref= ?sfx= ?sky ?voxel，src/library/demos.ts）；新项目没有这个文件，这里什么都不做
+type Entry = (id: string, file: string, start: number, end: number, extra?: Partial<TimelineEntry>) => TimelineEntry;
+type Demos = { demos: (E: Entry, au: AudioData) => TimelineEntry[] | null };
+const library = Object.values(import.meta.glob<Demos>('./library/demos.ts', { eager: true }))[0];
 
 export function makeTimeline(_ly: Lyrics, au: AudioData): TimelineEntry[] {
   const E = (id: string, file: string, start: number, end: number, extra: Partial<TimelineEntry> = {}): TimelineEntry =>
     ({ id, load: scene(file), start, end, ...extra });
-  // ?sky：只载入天空示例（云海、光点、日出光束、镜头虚化，scenes/demo_sky.ts），不在默认示例里
-  if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
-  // ?sfx=<组件名>：shaders 库的一个效果（kit/sfx.ts、scenes/demo_sfx.ts），&sfxprops=<JSON> 改 prop；
-  // ?sfx=showcase：示例场景被翻页（PagePeel）翻走，露出 3D 镀铬标题（scenes/demo_sfx_title.ts）
-  const sfx = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('sfx') : null;
-  if (sfx === 'showcase') return [E('sfx-a', 'demo', 0, 3), E('sfx-title', 'demo_sfx_title', 2, au.duration)];
-  if (sfx) return [E('demo-sfx', 'demo_sfx', 0, au.duration)];
-  // ?ref=<名>：参考片逐帧复刻（scenes/ref_<名>.ts，docs/复刻配方.md），场景从 0 秒开始、本地时间对齐原片那一段
-  const REF: Record<string, number> = { boot: 2.7, stack: 2.6, rhythm: 3.6, kaleido: 3.1, record: 1.65, droste: 3.2, glitch: 1.65, crash: 8.1, invader: 3.05, stage: 4.0 };
-  const ref = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('ref') ?? (new URLSearchParams(location.search).has('boot') ? 'boot' : null) : null;
-  if (ref && REF[ref]) return [E(`ref-${ref}`, `ref_${ref}`, 0, REF[ref]!)];
-  // ?ref=intro：原片前 16 小节（0–25.6 s）从头连着复刻，镜头首尾相接、转场是真的，歌曲秒 = 原片秒。
-  // 配原声：--song refs/kaomoji（tools/grid_song.py 从原片建，refs/ 不进仓库）
-  if (ref === 'intro') return [
-    E('intro-term', 'ref_intro_term', 0, 4.7),
-    E('intro-boot', 'ref_boot', 4.7, 7.9, { params: { origin: 5.4, exit: 'eye' } }),
-    E('intro-swiss', 'ref_intro_swiss', 7.9, 15.6),
-    E('intro-pop', 'ref_intro_pop', 15.36, 22.2),
-    E('intro-droste', 'ref_droste', 22.2, 25.6, { params: { origin: 22.2 } }),
-  ];
+  const demo = library?.demos(E, au);
+  if (demo) return demo;
   // 示例：2D 场景 3 小节，同一个模块换参数再 2 小节，然后 3D 场景到结尾（都在强拍上硬切）
   const b3 = au.timeOfBar(3), b5 = au.timeOfBar(5);
   return [

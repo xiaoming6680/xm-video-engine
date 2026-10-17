@@ -8,7 +8,6 @@ import { DEFAULT_POST, Post, SHOULDER_GLSL, type PostParams } from './post';
 import { Hud } from './hud';
 import type { Cue, Frame, Scene, SceneClass, SceneCtx, PostOverrides } from './scene';
 import { loadFonts } from './type';
-import { loadStrokeFonts } from './stroke';
 import { glyphScope } from './glyphcheck';
 
 /**
@@ -154,9 +153,9 @@ export class Engine {
 
   async init(only?: (e: TimelineEntry) => boolean) {
     const dir = SONG_DIR ? `${SONG_DIR.replace(/\/$/, '')}/` : undefined;
-    [this.audio, this.lyrics] = await Promise.all([AudioData.load(dir), Lyrics.load(dir), loadFonts(), loadStrokeFonts()]) as [AudioData, Lyrics, void, void];
+    [this.audio, this.lyrics] = await Promise.all([AudioData.load(dir), Lyrics.load(dir), loadFonts()]) as [AudioData, Lyrics, void];
     // ?beatcheck: the beat-check film instead of the project's timeline (docs/新项目流程.md step 1);
-    // ?animatic: the project's timeline with a slate (bar number, shot id, section) on every frame (step 3)
+    // ?animatic: the project's timeline with a slate (bar number, shot id, section) on every frame
     const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
     this.timeline = q?.has('beatcheck')
       ? [{ id: 'beatcheck', load: () => import('./beatcheck'), start: 0, end: this.audio.duration }]

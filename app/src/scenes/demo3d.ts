@@ -1,68 +1,78 @@
-// 3D 示例场景：低多边形地形（terrain.ts）+ 体素字（voxel.ts）+ 相机路径（world.ts CamPath）+ 景深（kit3d.ts）。
-// 用来确认 3D 模块能跑，新项目可以删掉。镜头每个强拍推近一点，景深焦点跟着字走。
+// 3D 示例场景：three.js 场景渲染进引擎的 HDR 目标（world.ts setupRenderer）、相机路径（CamPath，时间参数化、速度连续）、
+// 景深（kit3d.ts GBuf + DofPass）、跟着底鼓动的物体。用来确认 3D 管线能跑，新项目可以删掉。
 import * as THREE from 'three';
 import { Scene, type Frame } from '../engine/scene';
 import { W, H } from '../engine/gl';
-import { lowPolyTerrain } from '../engine/terrain';
-import { VoxelGrid, buildVoxels, textCells } from '../engine/voxel';
 import { CamPath, setCam, setupRenderer } from '../engine/world';
 import { GBuf, DofPass } from '../engine/kit3d';
-import { LIN } from '../engine/palette';
-import { F, font } from '../engine/type';
+import { HEX, LIN } from '../engine/palette';
+import { mulberry32 } from '../engine/util';
 
-const hgt = (x: number, z: number) => 1.6 * Math.sin(x * 0.18) * Math.cos(z * 0.15) + 0.8 * Math.sin(x * 0.05 + z * 0.07);
+const N = 7; // N x N columns
+const GAP = 2.0;
+const MID = (N * N - 1) / 2;
 
 export default class Demo3D extends Scene {
   scene = new THREE.Scene();
-  cam = new THREE.PerspectiveCamera(40, W / H, 0.1, 400);
+  cam = new THREE.PerspectiveCamera(40, W / H, 0.1, 200);
   g = new GBuf();
   dof = new DofPass();
+  cols!: THREE.InstancedMesh;
+  phase: number[] = [];
   path!: CamPath;
+  m = new THREE.Matrix4();
 
   override init() {
     setupRenderer(this.ctx.renderer);
     const [r, g, b] = LIN.ink;
-    this.scene.background = new THREE.Color(r * 2, g * 2, b * 2.6);
-    this.scene.fog = new THREE.Fog(this.scene.background as THREE.Color, 30, 120);
-    const sun = new THREE.DirectionalLight(0xfff1e0, 2.6);
-    sun.position.set(-20, 30, 10);
+    this.scene.background = new THREE.Color(r, g, b);
+    this.scene.fog = new THREE.Fog(this.scene.background as THREE.Color, 18, 60);
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    sun.position.set(-8, 14, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 120 });
-    this.scene.add(sun, new THREE.HemisphereLight(0x8ea2c8, 0x2a2018, 0.9));
+    Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 50 });
+    this.scene.add(sun, new THREE.HemisphereLight(0xdfe4ec, 0x1a1a1e, 0.8));
 
-    const geo = lowPolyTerrain({ x0: -80, z0: -80, x1: 80, z1: 40, res: 64, h: hgt,
-      color: (_x, y, _z, slope) => new THREE.Color().setHSL(0.08, 0.25, 0.18 + 0.05 * y + 0.1 * (1 - slope)) });
-    const terrain = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 }));
-    terrain.receiveShadow = true;
-    this.scene.add(terrain);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x2a2a2f, roughness: 0.9 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    this.scene.add(floor);
 
-    // voxel letters standing on the ground at the origin
-    const cells = textCells('XM', font(F.archivo(100, 900), 32), 32);
-    const size = 0.12, depth = 8;
-    const umax = Math.max(...cells.map((c) => c.u)) + 1;
-    const grid = VoxelGrid.cover(size, [-umax * size / 2, hgt(0, 0), -1], [umax * size / 2, hgt(0, 0) + 12, -1 + depth * size]);
-    for (const c of cells) for (let k = 0; k < depth; k++) grid.set(c.u, c.v, k, 1);
-    const vox = buildVoxels(grid, [{ hex: 0 }, { hex: 0xff4d12 }], null, { castShadow: true });
-    this.scene.add(vox);
+    // the columns: white, the middle one in the signal colour
+    this.cols = new THREE.InstancedMesh(new THREE.BoxGeometry(0.8, 1, 0.8), new THREE.MeshStandardMaterial({ roughness: 0.55 }), N * N);
+    this.cols.castShadow = this.cols.receiveShadow = true;
+    const white = new THREE.Color(0xe8e8ec), signal = new THREE.Color(HEX.signal);
+    const rnd = mulberry32(7);
+    for (let i = 0; i < N * N; i++) {
+      this.phase.push(rnd());
+      this.cols.setColorAt(i, i === MID ? signal : white);
+    }
+    this.scene.add(this.cols);
 
-    // the camera: a slow push from wide to medium over the entry, the focus on the letters
+    // the camera: from high and wide down to a low three-quarter view over the entry
     const { start, end } = this.ctx;
     this.path = new CamPath([
-      { t: start, p: [-14, 6, 26], at: [0, hgt(0, 0) + 3, 0], fov: 40 },
-      { t: end, p: [6, 4, 13], at: [0, hgt(0, 0) + 3, 0], fov: 34 },
+      { t: start, p: [14, 10, 16], at: [0, 1, 0], fov: 36 },
+      { t: end, p: [-9, 4.5, 11], at: [0, 1.6, 0], fov: 30 },
     ]);
   }
 
   render(f: Frame, out: THREE.WebGLRenderTarget) {
-    const pose = this.path.at(f.t);
-    // a small push-in on every kick (decays): the camera answers the drums
-    pose.fov -= 1.2 * f.a.kick;
-    setCam(this.cam, pose);
+    // heights: a slow wave across the grid, plus every kick running outward from the middle
+    for (let i = 0; i < N * N; i++) {
+      const x = ((i % N) - (N - 1) / 2) * GAP, z = (Math.floor(i / N) - (N - 1) / 2) * GAP;
+      const d = Math.hypot(x, z);
+      const h = 0.4 + 1.4 * (0.5 + 0.5 * Math.sin(f.t * 1.3 - d * 0.5 + this.phase[i]! * 2)) + 2.2 * f.a.kick * Math.exp(-d * 0.3) + (i === MID ? 1.5 : 0);
+      this.m.makeScale(1, h, 1).setPosition(x, h / 2, z);
+      this.cols.setMatrixAt(i, this.m);
+    }
+    this.cols.instanceMatrix.needsUpdate = true;
+
+    setCam(this.cam, this.path.at(f.t));
     this.g.render(this.ctx.renderer, this.scene, this.cam, this.scene.background as THREE.Color);
-    this.dof.focus = this.cam.position.distanceTo(new THREE.Vector3(0, hgt(0, 0) + 3, 0));
+    this.dof.focus = this.cam.position.distanceTo(new THREE.Vector3(0, 1, 0));
     this.dof.aperture = 30;
     this.dof.render(this.ctx.renderer, this.g.color, this.g.rt.depthTexture!, this.cam, out);
-    return { bloom: 0.6, vignette: 0.3 };
   }
 }

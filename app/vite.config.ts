@@ -33,10 +33,10 @@ function repoAssets(): Plugin {
 export default defineConfig({
   root: '.',
   publicDir: 'public',
-  // typegpu: compiles 'use gpu' functions (the vendored shaders library, src/vendor/shaders, see its VENDOR.md) to WGSL
+  // typegpu: compiles 'use gpu' functions (the vendored shaders library, src/library/vendor/shaders, see its VENDOR.md) to WGSL
   plugins: [repoAssets(), typegpu()],
   // PDOOM_NO_HMR=1: no live reload (export renders must not reload mid-run when a file changes)
   server: { port: 5173, strictPort: false, hmr: process.env.PDOOM_NO_HMR ? false : undefined, fs: { allow: [repoRoot] } },
-  resolve: { alias: { '@root': repoRoot, '@coreroot': path.resolve(import.meta.dirname, 'src/vendor/shaders') } },
+  resolve: { alias: { '@root': repoRoot, '@coreroot': path.resolve(import.meta.dirname, 'src/library/vendor/shaders') } },
   build: { target: 'esnext', assetsInlineLimit: 0 },
 });

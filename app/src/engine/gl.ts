@@ -30,7 +30,7 @@ float ssWeight() { return ssTap < 0 ? 0.25 : 1.0; }`;
 
 /**
  * The engine's renderer on `canvas` (PW x PH). Alpha and a half-float drawing buffer: the canvas doubles as the float
- * surface kit/sfx.ts copies engine textures into WebGPU through (drawingBufferStorage needs alpha); the engine's final
+ * surface library/kit/sfx.ts copies engine textures into WebGPU through (drawingBufferStorage needs alpha); the engine's final
  * blit writes alpha 1, so it shows and reads back exactly as an opaque canvas.
  */
 export function makeRenderer(canvas: HTMLCanvasElement) {

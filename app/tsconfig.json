@@ -13,7 +13,7 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "types": ["vite/client", "@webgpu/types"],
-    "paths": { "@coreroot/*": ["./src/vendor/shaders/*"] }
+    "paths": { "@coreroot/*": ["./src/library/vendor/shaders/*"] }
   },
   "include": ["src"]
 }

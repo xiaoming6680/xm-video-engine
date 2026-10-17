@@ -1,6 +1,6 @@
-// bun test (from app/): the signed distance transform behind kit/sfx-shape.ts
+// bun test (from app/): the signed distance transform behind library/kit/sfx-shape.ts
 import { expect, test } from 'bun:test';
-import { signedDistance, fieldFromCoverage } from '../src/kit/sfx-shape';
+import { signedDistance, fieldFromCoverage } from '../src/library/kit/sfx-shape';
 
 function rng(seed: number) { return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
 

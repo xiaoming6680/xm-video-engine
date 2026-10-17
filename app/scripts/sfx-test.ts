@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Tests kit/sfx.ts (the shaders library as an engine layer) against the library itself, in headless Edge:
+// Tests library/kit/sfx.ts (the shaders library as an engine layer) against the library itself, in headless Edge:
 //   bun scripts/sfx-test.ts [--only Blur,Chrome] [--tests parity,determinism,stepping,input,smoke] [--thumbs]
 //                           [--cs p3-linear|srgb] [--scale 2] [--from Name] [--out ../out/sfx_test] [--headed]
 // tests (default the five above; also sweep, perf, history): parity, the library's own offline path
@@ -8,7 +8,7 @@
 // every prop's variants rendered (errors, NaN); input, EngineTexture's two paths + HDR, the NaN guard and three.js's
 // GL state cache; perf, ms per fx.render (--scale 2: 4K); smoke, frames at several times (errors, NaN, coverage).
 // Also: --call <fn> --spec '<json>' (one bench function), --catalog <md> --report <json> [--perf <json>]
-// [--report4k <json>] (writes docs/sfx组件.md).
+// [--report4k <json>] (writes src/library/sfx组件.md).
 // Writes report.json and summary.md (and, with --thumbs, ref | ours | diff×8 sheets) to --out. Every request to
 // another host is blocked and listed (the library must not reach the network: no telemetry, no font CDN).
 // Exit code 1 when a test fails (see THRESHOLDS).
@@ -86,7 +86,7 @@ try {
   const SCALE_Q = opt('scale') ? `&scale=${opt('scale')}` : '';
   await page.goto(`${server.url}/sfxtest.html?cs=${CS}${SCALE_Q}`);
   await page.waitForFunction(() => (window as any).__sfxtest?.ready, null, { timeout: 120000 });
-  // --catalog <file.md> [--report <report.json>]: the component catalog (docs/sfx组件.md), with test results if given
+  // --catalog <file.md> [--report <report.json>]: the component catalog (src/library/sfx组件.md), with test results if given
   if (opt('catalog')) {
     const cat: any[] = await page.evaluate(() => (window as any).__sfxtest.catalog());
     const rep = opt('report') ? JSON.parse(await Bun.file(path.resolve(APP, opt('report')!)).text()) : null;
@@ -97,9 +97,9 @@ try {
     for (const c of cat) { const k = c.category || '其他'; if (!byCat.has(k)) byCat.set(k, []); byCat.get(k)!.push(c); }
     const first = (d: string) => { const m = /^(.+?[.!?])(\s|$)/.exec(d); const x = (m ? m[1]! : d).replace(/\|/g, '/'); return x.length > 160 ? `${x.slice(0, 157)}…` : x; };
     const lines = [
-      '# shaders 库组件（kit/sfx.ts）', '',
-      `${cat.length} 个（含引擎的 EngineTexture）。由 \`bun scripts/sfx-test.ts --catalog ../docs/sfx组件.md --report ../out/sfx_test/report.json --perf ../out/sfx_perf/report.json --report4k ../out/sfx_perf4k/report.json\` 生成（app 目录下；三份报告来自 \`bun scripts/sfx-test.ts --tests parity,determinism,stepping,input,smoke,sweep --out ../out/sfx_test\`、\`bun scripts/sfx-test.ts --tests perf --out ../out/sfx_perf\` 和 \`bun scripts/sfx-test.ts --tests perf --scale 2 --out ../out/sfx_perf4k\`；测性能时机器上别跑别的），改了原库或重测后重跑；说明是原库的英文原文。`,
-      '每个组件的 prop、默认值、取值范围看 `app/src/vendor/shaders/shaders/<名>/index.ts`；怎么用见 [模块目录.md](模块目录.md) 第四节。', '',
+      '# shaders 库组件（library/kit/sfx.ts）', '',
+      `${cat.length} 个（含引擎的 EngineTexture）。由 \`bun scripts/sfx-test.ts --catalog src/library/sfx组件.md --report ../out/sfx_test/report.json --perf ../out/sfx_perf/report.json --report4k ../out/sfx_perf4k/report.json\` 生成（app 目录下；三份报告来自 \`bun scripts/sfx-test.ts --tests parity,determinism,stepping,input,smoke,sweep --out ../out/sfx_test\`、\`bun scripts/sfx-test.ts --tests perf --out ../out/sfx_perf\` 和 \`bun scripts/sfx-test.ts --tests perf --scale 2 --out ../out/sfx_perf4k\`；测性能时机器上别跑别的），改了原库或重测后重跑；说明是原库的英文原文。`,
+      '每个组件的 prop、默认值、取值范围看 `app/src/library/vendor/shaders/shaders/<名>/index.ts`；怎么用见 [README.md](README.md) 的 shaders 一节。', '',
       '标记：**子** 滤镜，要子层（EngineTexture 或别的组件）；**态** 有状态（场景要 `stateful = true`，`reset()` 里调 `fx.reset()`）；**指** 读指针（`fx.setPointer`）；**实** 实时媒体（视频 / 摄像头 / DOM），不能逐帧导出，用 EngineTexture 喂画面代替。',
       rep ? `对照：和原库自己的离线渲染逐像素比的最大差（8 位色阶，各测试帧取最大；测试 ${String(rep.started).slice(0, 10)}，NVIDIA Blackwell 显卡）。ms：\`fx.render()\` 一帧的耗时（连续 30 帧取平均，含 WebGPU→WebGL 回传），1080p / 4K。` : '', '',
     ];
