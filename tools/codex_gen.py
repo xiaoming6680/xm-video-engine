@@ -12,6 +12,9 @@
   python tools/codex_gen.py [names...] [--file assets/prompts.json] [--list] [--jobs 5]
 
 已存在的 out 会跳过（重出就先删掉）。每张图的完整提示词和 Codex 日志写在 prompts 文件旁边的 <name>.txt / .log。
+
+道具贴纸：_style 写明单个物体、居中、四周留足空白、纯白（#ffffff）底，out 写 art/raw/<名>.png；
+出完跑 tools/assets/props.py <名> 抠成透明贴纸 + 轮廓（assets/props/<名>.png / .json）。
 """
 import argparse
 import json
