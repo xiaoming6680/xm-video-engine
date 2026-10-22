@@ -28,5 +28,7 @@ export const CREDIT = '';
  * 额外字体：public/fonts/ 下的文件，family 是 Canvas2D 里用的名字。文件不存在时只警告、不阻止启动。
  * 例：系统里的苹方、华文行楷是商业字体，只放在自己项目里用，不进基础引擎。
  *   { family: 'PingFang-500', file: 'PingFang-Medium.ttf' }, { family: 'STXingkai', file: 'STXingkai.ttf' }
+ * 可变字体写上字重范围，Canvas2D 才会用它的字重轴（场景里写 `c.font = '600 120px "SegUIVar"'`）：
+ *   { family: 'SegUIVar', file: 'SegUIVar.ttf', weight: '100 900' }
  */
-export const EXTRA_FONTS: { family: string; file: string; features?: string }[] = [];
+export const EXTRA_FONTS: { family: string; file: string; features?: string; weight?: string }[] = [];

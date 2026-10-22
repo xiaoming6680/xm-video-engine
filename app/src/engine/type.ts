@@ -11,8 +11,11 @@ import { EXTRA_FONTS } from '../config';
 export const ARCHIVO_WIDTHS = [620, 750, 875, 1000, 1125, 1250] as const;
 export const ARCHIVO_WEIGHTS = [300, 500, 700, 900] as const;
 
-/** `features`: OpenType features switched on for the face (Canvas2D has no font-feature-settings). */
-type FontDef = { family: string; file: string; features?: string };
+/**
+ * `features`: OpenType features switched on for the face (Canvas2D has no font-feature-settings).
+ * `weight`: a variable font's weight range ('100 900'), so Canvas2D `600 120px "Family"` uses the wght axis.
+ */
+type FontDef = { family: string; file: string; features?: string; weight?: string };
 const DEFS: FontDef[] = [];
 for (const w of ARCHIVO_WIDTHS) for (const wt of ARCHIVO_WEIGHTS) DEFS.push({ family: `Archivo-${w}-${wt}`, file: `Archivo-w${w}-${wt}.ttf` });
 for (const w of [750, 1000]) for (const wt of [400, 800]) DEFS.push({ family: `ArchivoItalic-${w}-${wt}`, file: `ArchivoItalic-w${w}-${wt}.ttf` });
@@ -73,7 +76,10 @@ const bufCache = new Map<string, ArrayBuffer>();
 async function register(d: FontDef) {
   const buf = await (await fetch(`fonts/${d.file}`)).arrayBuffer();
   bufCache.set(d.family, buf);
-  const ff = new FontFace(d.family, buf, d.features ? { featureSettings: d.features } : undefined);
+  const desc: FontFaceDescriptors = {};
+  if (d.features) desc.featureSettings = d.features;
+  if (d.weight) desc.weight = d.weight;
+  const ff = new FontFace(d.family, buf, desc);
   await ff.load();
   document.fonts.add(ff);
 }
