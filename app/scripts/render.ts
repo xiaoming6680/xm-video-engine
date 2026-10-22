@@ -13,6 +13,8 @@
 //   info:    bun scripts/render.ts info   (the timeline and every lyric line: index, times, length — never the text)
 //   scan:    bun scripts/render.ts scan [--from 0] [--to <end>] [--step 0.1]   (renders without saving; prints the scenes' warnings)
 //   cues:    bun scripts/render.ts cues [--out ../out/qa/cues.json]   (scenes' cues + cuts, for tools/qa/cuecheck.py)
+//   track:   bun scripts/render.ts track [--from a --to b] [--fps 30] [--out ../out/qa/track.json]
+//            (every frame: where each scene's tracked elements are on screen, Scene.track; for tools/qa/trackcheck.py)
 //   glyphs:  bun scripts/render.ts glyphs [--from 0] [--to <end>] [--step 0.1]   (every character drawn in a font that lacks
 //            it — Canvas2D falls back to a system font, outlines come out blank; exit code 1 if any)
 //   --song <dir> (all modes): the song from <dir>/song.wav + audio.json + events.json (+ lyrics.json) instead of the
@@ -272,6 +274,16 @@ try {
     mkdirSync(path.dirname(out), { recursive: true });
     await Bun.write(out, JSON.stringify({ cues }, null, 1));
     console.log(`${cues.length} cues -> ${out}`);
+  } else if (mode === 'track') {
+    const dur: number = await page.evaluate(() => (window as any).__pdoom.duration);
+    const from = +opt('from', String(VIDEO_START))!, to = +opt('to', String(Math.min(dur, VIDEO_END)))!, fps = +opt('fps', '30')!;
+    const data = await page.evaluate(([a, b, f]) => (window as any).__pdoom.track(a, b, f), [from, to, fps] as const);
+    const out = path.resolve(opt('out', path.join(ROOT, 'out/qa/track.json'))!);
+    mkdirSync(path.dirname(out), { recursive: true });
+    await Bun.write(out, JSON.stringify({ from, to, ...data }));
+    const names = new Set<string>();
+    for (const fr of data.frames) for (const k of Object.keys(fr.p)) names.add(k);
+    console.log(`${data.frames.length} frames, ${names.size} tracked element(s) -> ${out}`);
   } else if (mode === 'video') {
     const dur: number = await page.evaluate(() => (window as any).__pdoom.duration);
     await video(page, +opt('from', String(VIDEO_START))!, +opt('to', String(Math.min(dur, VIDEO_END)))!, +opt('fps', '60')!, path.resolve(opt('out', path.join(ROOT, config.OUT))!));

@@ -6,7 +6,7 @@ import { Lyrics } from './lyrics';
 import { Compositor, FSPass, W, H, PW, PH, SCALE, SS_TAP, makeRT, clearRT, makeRenderer } from './gl';
 import { DEFAULT_POST, Post, SHOULDER_GLSL, type PostParams } from './post';
 import { Hud } from './hud';
-import type { Cue, Frame, Scene, SceneClass, SceneCtx, PostOverrides } from './scene';
+import type { Cue, Frame, Scene, SceneClass, SceneCtx, PostOverrides, TrackPoint } from './scene';
 import { loadFonts } from './type';
 import { glyphScope } from './glyphcheck';
 
@@ -214,6 +214,20 @@ export class Engine {
       if (s) for (const c of s.cues()) out.push({ ...c, scene: e.id });
     }
     return out.sort((a, b) => a.t - b.t);
+  }
+
+  /**
+   * Where the active scenes' tracked elements are at t (Scene.track), keyed `entry/name`. Exported per frame by
+   * render.ts `track` for tools/qa/trackcheck.py.
+   */
+  track(t: number): Record<string, TrackPoint> {
+    const out: Record<string, TrackPoint> = {};
+    for (const e of this.timeline) {
+      if (t < e.start || t >= e.end) continue;
+      const s = this.loaded.get(e.id)?.scene;
+      if (s) for (const [k, v] of Object.entries(s.track(t))) out[`${e.id}/${k}`] = v;
+    }
+    return out;
   }
 
   private frameFor(e: TimelineEntry, t: number, dt: number, seeked: boolean, preroll: boolean, under: THREE.Texture | null, tin: number, tout: number): Frame {

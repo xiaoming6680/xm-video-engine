@@ -70,6 +70,13 @@ export interface Cue {
   on?: string;
 }
 
+/**
+ * Where one of the scene's main elements is on screen (logical px), for continuity checks: render.ts `track`
+ * samples every frame, tools/qa/trackcheck.py finds jumps, stalls and hand-offs that don't connect.
+ * `s` scale (any unit, compared frame to frame), `r` rotation (rad).
+ */
+export interface TrackPoint { x: number; y: number; s?: number; r?: number }
+
 export abstract class Scene {
   /** If true, the engine fast-forwards (calls render with preroll=true) after seeks. */
   stateful = false;
@@ -82,6 +89,9 @@ export abstract class Scene {
 
   /** Cues this scene times to the music (see Cue). Called after init(); return [] if none. */
   cues(): Cue[] { return []; }
+
+  /** Main elements' screen positions at t (see TrackPoint), keyed by a stable name. Return {} if none. */
+  track(_t: number): Record<string, TrackPoint> { return {}; }
 
   /** Load/create resources. Called once before first render. */
   init(): Promise<void> | void {}

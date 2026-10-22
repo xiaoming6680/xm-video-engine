@@ -52,6 +52,12 @@ function setupExport() {
     glyphs() { return glyphReport(); },
     /** Every scene's registered cues plus the timeline cuts (render.ts cues → tools/qa/cuecheck.py). */
     cues() { return engine.cues(); },
+    /** Tracked elements' screen positions for a run of frames (render.ts track → tools/qa/trackcheck.py). */
+    track(from: number, to: number, fps: number) {
+      const frames: { t: number; p: Record<string, unknown> }[] = [];
+      for (let i = 0; ; i++) { const t = from + i / fps; if (t >= to - 1e-9) break; frames.push({ t, p: engine.track(t) }); }
+      return { fps, frames, beats: engine.audio.beats, downbeats: engine.audio.downbeats };
+    },
     /** Render a single frame at t (seeks as needed). */
     still(t: number, samples: number | AdaptiveSampling = 1, shutter = 0.5) { return engine.render(t, 1 / 60, true, samples, shutter); },
     /** The last rendered frame as a full-resolution (PW x PH) PNG, base64 (for stills at scale > 1). */
