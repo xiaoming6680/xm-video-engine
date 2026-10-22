@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { kf, kfv, kfc, kfLoop, bezier, E, spring } from '../src/library/kit/anim';
 import { flatten, resample, Morph, PathWalk, circle, rect, area, ribbon, smoothPath, bounds } from '../src/library/kit/morph';
 import { parsePathD } from '../src/library/kit/svg';
-import { runPose, POSES, joints, blendPose } from '../src/library/kit/rig';
+import { runPose, walkPose, POSES, AGE_BUILD, joints, blendPose, neckAt, type Pose, type Joints } from '../src/library/kit/rig';
 
 const near = (a: number, b: number, eps = 1e-3) => expect(Math.abs(a - b)).toBeLessThan(eps);
 
@@ -99,4 +99,51 @@ test('rig: run cycle loops, contact poses land the foot', () => {
   expect(j.head.y).toBeLessThan(j.hip.y);      // head above the hip
   const mid = blendPose(POSES.crouch, POSES.launch, 0.5);
   near(mid.lean, (POSES.crouch.lean + POSES.launch.lean) / 2);
+});
+
+test('rig: walk cycle loops, mirrors at half, never leaves the ground', () => {
+  const a = walkPose(0), b = walkPose(1), h = walkPose(0.5);
+  for (const k of Object.keys(a) as (keyof Pose)[]) near(a[k], b[k], 1e-6);
+  near(h.hipA, a.hipB, 1e-6); near(h.shA, a.shB, 1e-6); // the second step is the first one mirrored
+  // the lower foot hardly rises over the cycle (always one foot down); a sprint has flight
+  const lowFootRange = (f: (u: number) => Pose) => {
+    const ys = Array.from({ length: 80 }, (_, i) => { const j = joints(f(i / 80), 100); return Math.max(j.footA.y, j.footB.y); });
+    return Math.max(...ys) - Math.min(...ys);
+  };
+  expect(lowFootRange(walkPose)).toBeLessThan(6);
+  expect(lowFootRange(runPose)).toBeGreaterThan(15);
+});
+
+test('rig: hand-set poses read as named', () => {
+  const up = joints(POSES.reachUp, 100);
+  expect(up.handA.y).toBeLessThan(up.head.y - up.headR);        // hand above the head
+  const bh = joints(POSES.behind, 100);
+  expect(bh.handA.x).toBeLessThan(0); expect(bh.handB.x).toBeLessThan(0); // hands behind the back
+  const ph = joints(POSES.phone, 100);
+  expect(ph.handA.x).toBeGreaterThan(10); expect(ph.handA.y).toBeLessThan(ph.hip.y); // held up in front
+  expect(ph.head.x).toBeGreaterThan(joints(POSES.stand, 100).head.x); // looking down at it
+  const sit = joints(POSES.sit, 100);
+  near(sit.kneeA.y, sit.hip.y, 5);                               // thigh level with the seat
+  const tall = (j: Joints) => Math.max(j.footA.y, j.footB.y) - (j.head.y - j.headR);
+  expect(tall(joints(POSES.curl, 100))).toBeLessThan(tall(joints(POSES.stand, 100)) * 0.6); // curled up small
+  expect(joints(POSES.slump, 100).head.x).toBeGreaterThan(joints(POSES.stand, 100).head.x);
+});
+
+test('rig: build defaults to the original adult, ages change proportions', () => {
+  // no build = AGE_BUILD.adult = the original rig: straight back, neck 0.33·s from the hip
+  const p = runPose(0.3), a = joints(p, 100), b = joints(p, 100, AGE_BUILD.adult);
+  near(a.neck.x, Math.sin(p.lean) * 33, 1e-9); near(a.neck.y, p.drop * 100 - Math.cos(p.lean) * 33, 1e-9);
+  near(a.mid!.x, (a.hip.x + a.neck.x) / 2, 1e-9); near(a.mid!.y, (a.hip.y + a.neck.y) / 2, 1e-9);
+  for (const k of ['head', 'handA', 'footB'] as const) { near(a[k].x, b[k].x, 1e-9); near(a[k].y, b[k].y, 1e-9); }
+  const tall = (j: Joints) => Math.max(j.footA.y, j.footB.y) - (j.head.y - j.headR);
+  const ad = joints(POSES.stand, 100), kid = joints(POSES.stand, 100, AGE_BUILD.child), baby = joints(POSES.stand, 100, AGE_BUILD.baby);
+  expect(tall(baby)).toBeLessThan(tall(kid)); expect(tall(kid)).toBeLessThan(tall(ad));
+  expect(baby.headR / tall(baby)).toBeGreaterThan((1.5 * ad.headR) / tall(ad)); // big head for the body
+  // an old body stoops: the upper back bends further forward than the lower, the head ends up well ahead
+  const old = joints(POSES.stand, 100, AGE_BUILD.old);
+  const ang = (from: { x: number; y: number }, to: { x: number; y: number }) => Math.atan2(to.x - from.x, from.y - to.y);
+  expect(ang(old.mid!, old.neck) - ang(old.hip, old.mid!)).toBeGreaterThan(0.3);
+  expect(old.head.x - ad.head.x).toBeGreaterThan(10);
+  const n = neckAt(10, 20, 100, POSES.stand, { build: AGE_BUILD.old });
+  near(n.x, 10 + old.neck.x); near(n.y, 20 + old.neck.y);
 });

@@ -2,9 +2,10 @@
 // 不是正弦摆动。外加一条围巾：它就是脖子在过去一小段时间里走过的路径（再被风吹一点），所以跟随、甩尾都是自动的，
 // 也只取决于 t。
 //
-//   const pose = runPose(beatPhase / 2)              // 两拍一个循环：脚步踩在拍上
-//   const p2 = blendPose(pose, JUMP.crouch, w)       // 往预备姿势混
+//   const pose = runPose(beatPhase / 2)              // 两拍一个循环：脚步踩在拍上（走路用 walkPose）
+//   const p2 = blendPose(pose, POSES.crouch, w)      // 往预备姿势混
 //   drawFigure(c, x, y, size, pose, { color, gap })  // (x, y) 是胯
+//   drawFigure(c, x, y, size, pose, { color, build: AGE_BUILD.old })  // 按年龄的身体比例（小孩大头短腿、老人驼背）
 //   const j = joints(pose, size)                      // 关节位置（围巾挂在 j.neck，镜头跟 j.hip …）
 //
 // 角度约定：0 = 竖直向下，正 = 朝前（脸朝 +x）。膝 / 肘是相对弯曲量（膝往后弯为正，肘往前弯为正）。
@@ -48,6 +49,19 @@ export function runPose(phase: number): Pose {
   return Object.fromEntries(KEYS.map((k) => [k, kfLoop(phase, CYCLE.map(([p, q]) => [p, q[k]] as const))])) as unknown as Pose;
 }
 
+// A walk: always one foot down, small bob, arms swing low.
+const WSTEP: [number, Pose][] = [
+  [0.0, { lean: 0.06, drop: 0.012, hipA: 0.36, kneeA: 0.05, hipB: -0.3, kneeB: 0.3, shA: -0.35, elA: 0.35, shB: 0.35, elB: 0.45, head: 0.02 }],
+  [0.14, { lean: 0.07, drop: 0.025, hipA: 0.2, kneeA: 0.2, hipB: -0.12, kneeB: 0.7, shA: -0.2, elA: 0.35, shB: 0.2, elB: 0.4, head: 0.03 }],
+  [0.27, { lean: 0.06, drop: 0.0, hipA: -0.02, kneeA: 0.04, hipB: 0.12, kneeB: 0.85, shA: 0.0, elA: 0.3, shB: 0.0, elB: 0.3, head: 0.02 }],
+  [0.39, { lean: 0.06, drop: -0.008, hipA: -0.25, kneeA: 0.08, hipB: 0.32, kneeB: 0.35, shA: 0.3, elA: 0.4, shB: -0.3, elB: 0.35, head: 0.02 }],
+];
+const WCYCLE: [number, Pose][] = [...WSTEP, ...WSTEP.map(([p, q]) => [p + 0.5, mirror(q)] as [number, Pose])];
+/** Walking pose at cycle phase 0..1 (one cycle = two steps). */
+export function walkPose(phase: number): Pose {
+  return Object.fromEntries(KEYS.map((k) => [k, kfLoop(phase, WCYCLE.map(([p, q]) => [p, q[k]] as const))])) as unknown as Pose;
+}
+
 /** Hand-set poses for jumps, landings and holds. */
 export const POSES = {
   stand: { lean: 0.02, drop: 0, hipA: 0.08, kneeA: 0.05, hipB: -0.08, kneeB: 0.05, shA: 0.1, elA: 0.2, shB: -0.1, elB: 0.2, head: 0 },
@@ -61,27 +75,56 @@ export const POSES = {
   reach: { lean: 0.1, drop: -0.03, hipA: 0.5, kneeA: 0.25, hipB: 0.15, kneeB: 0.5, shA: 1.9, elA: 0.4, shB: 1.4, elB: 0.6, head: -0.05 },
   /** Landing: absorb, arms forward for balance. */
   land: { lean: 0.45, drop: 0.13, hipA: 0.95, kneeA: 1.6, hipB: 0.7, kneeB: 1.45, shA: 1.1, elA: 0.7, shB: 0.8, elB: 0.8, head: 0.12 },
+  /** Curled up small (a newborn, or someone hugging their knees). */
+  curl: { lean: 0.9, drop: 0.18, hipA: 1.9, kneeA: 2.5, hipB: 1.7, kneeB: 2.45, shA: 1.2, elA: 1.6, shB: 1.0, elB: 1.7, head: 0.5 },
+  /** Reaching straight up for something just out of reach, on tiptoe. */
+  reachUp: { lean: -0.05, drop: -0.04, hipA: 0.05, kneeA: 0.0, hipB: -0.12, kneeB: 0.25, shA: 2.95, elA: 0.05, shB: 2.4, elB: 0.25, head: -0.35 },
+  /** Hands hidden behind the back, weight on one leg. */
+  behind: { lean: -0.04, drop: 0.0, hipA: 0.1, kneeA: 0.15, hipB: -0.08, kneeB: 0.05, shA: -0.55, elA: -0.9, shB: -0.5, elB: -0.85, head: 0.12 },
+  /** Looking down at something held in both hands. */
+  phone: { lean: 0.08, drop: 0.0, hipA: 0.06, kneeA: 0.05, hipB: -0.06, kneeB: 0.05, shA: 0.25, elA: 1.65, shB: 0.15, elB: 1.75, head: 0.55 },
+  /** Sitting on a chair (seat at hip height), hands on the knees. */
+  sit: { lean: 0.05, drop: 0.0, hipA: 1.5, kneeA: 1.5, hipB: 1.45, kneeB: 1.5, shA: 0.75, elA: 0.55, shB: 0.65, elB: 0.6, head: 0.25 },
+  /** Standing still, shoulders dropped. */
+  slump: { lean: 0.1, drop: 0.01, hipA: 0.05, kneeA: 0.08, hipB: -0.05, kneeB: 0.06, shA: -0.05, elA: 0.1, shB: 0.05, elB: 0.12, head: 0.4 },
 } satisfies Record<string, Pose>;
+
+/** Body proportions (1 = the default adult): a child has a big head and short limbs, an old body stoops. */
+export interface Build { head?: number; torso?: number; leg?: number; arm?: number; stoop?: number }
+export const AGE_BUILD = {
+  baby: { head: 1.55, torso: 0.62, leg: 0.5, arm: 0.6 },
+  child: { head: 1.35, torso: 0.75, leg: 0.72, arm: 0.78 },
+  teen: { head: 1.08, torso: 0.95, leg: 0.97, arm: 0.97 },
+  adult: {},
+  middle: { head: 1.0, torso: 1.0, leg: 0.98, arm: 1.0, stoop: 0.12 },
+  old: { head: 1.02, torso: 0.92, leg: 0.9, arm: 0.95, stoop: 0.45 },
+} satisfies Record<string, Build>;
 
 export interface Joints {
   hip: V2; neck: V2; head: V2; headR: number;
   kneeA: V2; footA: V2; kneeB: V2; footB: V2;
   elbowA: V2; handA: V2; elbowB: V2; handB: V2;
+  /** Middle of the back (a stooped spine bends here). */
+  mid?: V2;
 }
 
 /** Joint positions for a pose at figure size `s` (≈ head-to-foot height), hip at the origin, facing +x. */
-export function joints(p: Pose, s: number): Joints {
+export function joints(p: Pose, s: number, b: Build = {}): Joints {
+  const T = b.torso ?? 1, Lg = b.leg ?? 1, A = b.arm ?? 1, Hd = b.head ?? 1, st = b.stoop ?? 0;
   const dir = (th: number, L: number): V2 => ({ x: Math.sin(th) * L * s, y: Math.cos(th) * L * s });
-  const add = (a: V2, b: V2): V2 => ({ x: a.x + b.x, y: a.y + b.y });
+  const add = (a: V2, c: V2): V2 => ({ x: a.x + c.x, y: a.y + c.y });
   const hip: V2 = { x: 0, y: p.drop * s };
-  const neck = add(hip, { x: Math.sin(p.lean) * 0.33 * s, y: -Math.cos(p.lean) * 0.33 * s });
-  const head = add(neck, { x: Math.sin(p.lean + p.head) * 0.15 * s, y: -Math.cos(p.lean + p.head) * 0.15 * s });
-  const kneeA = add(hip, dir(p.hipA, 0.25)), footA = add(kneeA, dir(p.hipA - p.kneeA, 0.25));
-  const kneeB = add(hip, dir(p.hipB, 0.25)), footB = add(kneeB, dir(p.hipB - p.kneeB, 0.25));
-  const sh = add(neck, { x: -Math.sin(p.lean) * 0.03 * s, y: Math.cos(p.lean) * 0.03 * s });
-  const elbowA = add(sh, dir(p.shA, 0.18)), handA = add(elbowA, dir(p.shA + p.elA, 0.16));
-  const elbowB = add(sh, dir(p.shB, 0.18)), handB = add(elbowB, dir(p.shB + p.elB, 0.16));
-  return { hip, neck, head, headR: 0.1 * s, kneeA, footA, kneeB, footB, elbowA, handA, elbowB, handB };
+  // a stooped back: the upper torso bends further forward than the lower
+  const lean = p.lean + st * 0.5;
+  const mid = add(hip, { x: Math.sin(lean) * 0.165 * T * s, y: -Math.cos(lean) * 0.165 * T * s });
+  const neck = add(mid, { x: Math.sin(lean + st) * 0.165 * T * s, y: -Math.cos(lean + st) * 0.165 * T * s });
+  const head = add(neck, { x: Math.sin(lean + st * 0.6 + p.head) * 0.15 * Hd * s, y: -Math.cos(lean + st * 0.6 + p.head) * 0.15 * Hd * s });
+  const kneeA = add(hip, dir(p.hipA, 0.25 * Lg)), footA = add(kneeA, dir(p.hipA - p.kneeA, 0.25 * Lg));
+  const kneeB = add(hip, dir(p.hipB, 0.25 * Lg)), footB = add(kneeB, dir(p.hipB - p.kneeB, 0.25 * Lg));
+  const sh = add(neck, { x: -Math.sin(lean) * 0.03 * s, y: Math.cos(lean) * 0.03 * s });
+  const elbowA = add(sh, dir(p.shA, 0.18 * A)), handA = add(elbowA, dir(p.shA + p.elA, 0.16 * A));
+  const elbowB = add(sh, dir(p.shB, 0.18 * A)), handB = add(elbowB, dir(p.shB + p.elB, 0.16 * A));
+  return { hip, neck, head, headR: 0.1 * Hd * s, kneeA, footA, kneeB, footB, elbowA, handA, elbowB, handB, mid };
 }
 
 export interface FigureStyle {
@@ -94,11 +137,13 @@ export interface FigureStyle {
   rot?: number;
   /** Limb thickness as a fraction of size. */
   limb?: number;
+  /** Body proportions (AGE_BUILD). */
+  build?: Build;
 }
 
 /** Draw the figure with its hip at (x, y). */
 export function drawFigure(c: CanvasRenderingContext2D, x: number, y: number, s: number, p: Pose, st: FigureStyle) {
-  const j = joints(p, s);
+  const j = joints(p, s, st.build);
   const w = (st.limb ?? 0.1) * s;
   c.save();
   c.translate(x, y);
@@ -118,7 +163,7 @@ export function drawFigure(c: CanvasRenderingContext2D, x: number, y: number, s:
   const cut = (a: V2, b: V2, e: V2): V2[] => [{ x: lerp(a.x, b.x, 0.45), y: lerp(a.y, b.y, 0.45) }, b, e];
   line([j.neck, j.elbowB, j.handB], w, st.color);
   line([j.hip, j.kneeB, j.footB], w, st.color);
-  line([j.hip, j.neck], w * 1.45, st.color);
+  line(j.mid ? [j.hip, j.mid, j.neck] : [j.hip, j.neck], w * 1.45, st.color);
   c.fillStyle = st.color;
   c.beginPath();
   c.arc(j.head.x, j.head.y, j.headR, 0, TAU);
@@ -131,8 +176,8 @@ export function drawFigure(c: CanvasRenderingContext2D, x: number, y: number, s:
 }
 
 /** Neck position in the parent space for a figure drawn at (x, y) with these settings. */
-export function neckAt(x: number, y: number, s: number, p: Pose, st: Pick<FigureStyle, 'flip' | 'rot'> = {}): V2 {
-  const n = joints(p, s).neck;
+export function neckAt(x: number, y: number, s: number, p: Pose, st: Pick<FigureStyle, 'flip' | 'rot' | 'build'> = {}): V2 {
+  const n = joints(p, s, st.build).neck;
   const nx = st.flip ? -n.x : n.x, r = st.rot ?? 0;
   return { x: x + nx * Math.cos(r) - n.y * Math.sin(r), y: y + nx * Math.sin(r) + n.y * Math.cos(r) };
 }
