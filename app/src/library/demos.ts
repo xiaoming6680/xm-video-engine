@@ -3,6 +3,7 @@
 //   ?voxel              低多边形地形 + 体素字（scenes/demo_voxel.ts）
 //   ?tactile            实物感：贴纸拍到桌上、影子随抬起高度变（kit/tactile.ts、scenes/demo_tactile.ts）
 //   ?brush              手绘线：压力笔刷、线条沸腾、摄影表（kit/tegaki.ts、scenes/demo_brush.ts）
+//   ?mg                 MG 动作：弹簧挤压、经圆变形、一笔画、镜头领先（kit/anim.ts、kit/morph.ts、scenes/demo_mg.ts）
 //   ?plate              预渲染序列帧当场景（kit/plate.ts、scenes/demo_plate.ts）；?plate=blender 读 tools/blender 渲的示例镜头（assets/blender/drop/）
 //   ?sfx=<组件名>       shaders 库的一个效果（kit/sfx.ts、scenes/demo_sfx.ts），&sfxprops=<JSON> 改 prop
 //   ?sfx=showcase       示例场景被翻页（PagePeel）翻走，露出 3D 镀铬标题（scenes/demo_sfx_title.ts）
@@ -24,7 +25,7 @@ export function demos(E0: E, au: AudioData): TimelineEntry[] | null {
   if (q.has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
   if (q.has('voxel')) return [E('demo-voxel', 'demo_voxel', 0, au.duration)];
   if (q.has('tactile')) return [E0('demo-tactile', 'demo_tactile', 0, au.duration)]; // 新写的，用中性默认后期
-  for (const k of ['brush', 'plate']) if (q.has(k)) return [E0(`demo-${k}`, `demo_${k}`, 0, au.duration)];
+  for (const k of ['brush', 'mg', 'plate']) if (q.has(k)) return [E0(`demo-${k}`, `demo_${k}`, 0, au.duration)];
   const sfx = q.get('sfx');
   if (sfx === 'showcase') return [E('sfx-a', 'demo', 0, 3), E('sfx-title', 'demo_sfx_title', 2, au.duration)];
   if (sfx) return [E('demo-sfx', 'demo_sfx', 0, au.duration)];

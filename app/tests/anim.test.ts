@@ -1,7 +1,12 @@
 // 关键帧层、变形 / 路径、SVG 路径解析、角色绑定的纯函数测试：bun test tests/anim.test.ts
 import { expect, test } from 'bun:test';
-import { kf, kfv, kfc, kfLoop, bezier, E, spring } from '../src/library/kit/anim';
-import { flatten, resample, Morph, PathWalk, circle, rect, area, ribbon, smoothPath, bounds } from '../src/library/kit/morph';
+import {
+  kf, kfv, kfc, kfLoop, bezier, E, spring, springRest, springVel, kick, pop, hops, stagger, lerpZoom, kfz, zoomPath, monotone, lead, holdClock,
+} from '../src/library/kit/anim';
+import {
+  flatten, resample, Morph, PathWalk, circle, rect, area, ribbon, smoothPath, bounds, parts, SlotMorph, SLOTS, placeMatrix, mapPt, travel, OneLine,
+  centroid,
+} from '../src/library/kit/morph';
 import { parsePathD } from '../src/library/kit/svg';
 import { runPose, walkPose, POSES, AGE_BUILD, joints, blendPose, neckAt, type Pose, type Joints } from '../src/library/kit/rig';
 
@@ -146,4 +151,193 @@ test('rig: build defaults to the original adult, ages change proportions', () =>
   expect(old.head.x - ad.head.x).toBeGreaterThan(10);
   const n = neckAt(10, 20, 100, POSES.stand, { build: AGE_BUILD.old });
   near(n.x, 10 + old.neck.x); near(n.y, 20 + old.neck.y);
+});
+
+// ---------- MG motion ----------
+
+test('springRest starts at rest, springVel is its derivative, kick rings down', () => {
+  near(springRest(0), 0); near(springRest(5), 1, 1e-4);
+  const h = 1e-4;
+  for (const t of [0.05, 0.2, 0.6]) near((springRest(t + h) - springRest(t - h)) / (2 * h), springVel(t), 1e-3);
+  near((springRest(2 * h) - springRest(h)) / h, 0, 0.05); // zero velocity at release (util springStep does not have this)
+  near(kick(1, 1), 0); near(kick(0.5, 1), 0);
+  expect(kick(1 + 1 / (4 * 3), 1, 3, 0.35)).toBeGreaterThan(0.4); // swings out a quarter period later
+  near(kick(4, 1), 0, 1e-3);
+});
+
+test('pop: grows tall while fast, pinned to exactly 1 after `pin`', () => {
+  expect(pop(0.9, 1).s).toBe(0);
+  const fast = pop(1.05, 1);
+  expect(fast.sy).toBeGreaterThan(fast.sx); // stretched along the growth
+  const done = pop(1 + 0.9, 1, { pin: 0.9 });
+  expect(done.s).toBe(1); expect(done.k).toBe(0); expect(done.sx).toBe(1);
+  expect(pop(3, 1).sy).toBe(1);
+  expect(pop(1.3, 1, { squash: 0 }).k).toBe(0);
+});
+
+test('hops: wind-up squash, parabola with apex, landing jolt, ends on target', () => {
+  const A = { x: 0, y: 0 }, B = { x: 300, y: 0 };
+  const legs = [{ to: B, t0: 1, t1: 1.5, height: 120 }];
+  const rest = hops(0.5, A, legs, { r: 30 });
+  near(rest.x, 0); near(rest.y, 0); near(rest.along, 1); expect(rest.air).toBe(false);
+  const wound = hops(0.999, A, legs, { r: 30 });
+  expect(wound.along).toBeLessThan(0.72); expect(wound.across).toBeGreaterThan(1.15);
+  near(wound.y, 30 * (1 - wound.along)); // squashed onto its base
+  const mid = hops(1.25, A, legs);
+  expect(mid.air).toBe(true); near(mid.x, 150); near(mid.y, -120); near(mid.angle, 0); // apex: only moving sideways
+  near(mid.along, 1 + (600 / 5000) * 0.22); // stretch from the horizontal speed alone
+  const rising = hops(1.1, A, legs);
+  expect(rising.along).toBeGreaterThan(mid.along); near(rising.along * rising.across, 1, 1e-9); // faster: longer, area kept
+  expect(rising.angle).toBeLessThan(-0.5); // pointing up along the climb
+  const landed = hops(1.5 + 0.0575, A, legs);
+  near(landed.x, 300); near(landed.along, 1 - 0.22 * 0.552, 0.01); // landing squash peaks ~58 ms in (kick 3.5 Hz, ζ 0.4)
+  near(hops(3, A, legs).along, 1, 1e-3);
+  // a drop (height 0): accelerating straight down
+  const drop = [{ to: { x: 0, y: 500 }, t0: 0, t1: 1, height: 0, antic: 0 }];
+  near(hops(0.5, { x: 0, y: -100 }, drop).y, -100 + 0.25 * 600); near(hops(0.5, { x: 0, y: -100 }, drop).x, 0);
+});
+
+test('stagger: by distance, by ring, clockwise around, seeded jitter', () => {
+  const c = { x: 0, y: 0 };
+  near(stagger(c, c), 0);
+  near(stagger({ x: 500, y: 0 }, c, { speed: 1000 }), 0.5);
+  near(stagger({ x: 100, y: 90 }, c, { ring: 100, gap: 0.1, metric: 'box' }), 0.1);
+  near(stagger({ x: 200, y: -100 }, c, { ring: 100, gap: [0, 0.2, 0.3], metric: 'box' }), 0.3);
+  near(stagger({ x: 400, y: 0 }, c, { ring: 100, gap: [0, 0.2, 0.3], metric: 'box' }), 0.5); // extrapolated
+  const top = stagger({ x: 0, y: -100 }, c, { ring: 100, gap: 0, turn: 1 }), right = stagger({ x: 100, y: 0 }, c, { ring: 100, gap: 0, turn: 1 });
+  near(top, 0); near(right, 0.25); // clockwise on screen from straight up
+  const j = stagger({ x: 30, y: 40 }, c, { speed: 1e9, jitter: 0.02, seed: 3 });
+  expect(j).toBeGreaterThanOrEqual(0); expect(j).toBeLessThan(0.02);
+  expect(stagger({ x: 30, y: 40 }, c, { speed: 1e9, jitter: 0.02, seed: 3 })).toBe(j);
+});
+
+test('zoom in log space and the van Wijk zoom path', () => {
+  near(lerpZoom(1, 4, 0.5), 2); near(kfz(0.5, [[0, 1], [1, 4, 'lin']]), 2);
+  const a = { x: 0, y: 0, zoom: 2 }, b = { x: 6000, y: 1000, zoom: 1.5 };
+  const p = zoomPath(a, b, 1.25);
+  const p0 = p(0), p1 = p(1);
+  near(p0.x, 0); near(p0.zoom, 2); near(p1.x, 6000); near(p1.y, 1000); near(p1.zoom, 1.5);
+  near(p(1e-6).zoom, 2, 1e-3); near(p(1 - 1e-6).x, 6000, 0.05); // continuous at the ends
+  expect(p(0.5).zoom).toBeLessThan(0.6); // pulls well out on the way
+  expect(zoomPath(a, b, 0.85)(0.5).zoom).toBeGreaterThan(p(0.5).zoom); // lower rho pulls out less
+  // pan along the line between the centres, monotonic
+  let prev = -1;
+  for (let u = 0; u <= 1; u += 0.05) { const v = p(u); expect(v.x).toBeGreaterThanOrEqual(prev - 1e-6); prev = v.x; near(v.y / 1000, v.x / 6000, 1e-6); }
+  // same centre: a pure zoom, steady in log space
+  const z = zoomPath({ x: 5, y: 5, zoom: 1 }, { x: 5, y: 5, zoom: 4 });
+  near(z(0.5).zoom, 2, 1e-6); near(z(0.5).x, 5);
+  expect(p.duration).toBeGreaterThan(0);
+});
+
+test('monotone spline: through the keys, no overshoot, repeated value holds', () => {
+  const f = monotone([0, 1, 2, 3, 4], [0, 10, 10, 30, 31], 1.3, 0);
+  near(f(0), 0); near(f(1), 10); near(f(3), 30); near(f(4), 31); near(f(-1), 0); near(f(9), 31);
+  near(f(1.5), 10); // hold
+  let prev = -Infinity;
+  for (let x = 0; x <= 4; x += 0.01) { const v = f(x); expect(v).toBeGreaterThanOrEqual(prev - 1e-9); prev = v; }
+  for (let x = 3; x <= 4; x += 0.01) expect(f(x)).toBeLessThanOrEqual(31 + 1e-9);
+  const h = 1e-4;
+  near((f(4) - f(4 - h)) / h, 0, 0.01); // comes to rest on the last key
+});
+
+test('lead looks ahead (not behind); holdClock pauses and catches up', () => {
+  const target = (t: number) => ({ x: 100 * t, y: 0 });
+  near(lead(target, 2, { lead: 0.08 }).x, 208, 1e-6); // constant speed: exactly lead s ahead
+  const bend = (t: number) => ({ x: 100 * Math.max(0, t), y: 0 });
+  expect(lead(bend, -0.1).x).toBeGreaterThan(0); // starts moving before the target does
+  const holds = [[2, 2.5]] as const;
+  near(holdClock(1, holds), 1); near(holdClock(5, holds), 5);
+  const atHold = holdClock(2, holds);
+  near(holdClock(2.3, holds), atHold, 1e-9); // stopped through the hold
+  near(holdClock(2.5 + 0.5, holds), 3, 1e-9); // caught up exactly when the release ends
+  let prev = -Infinity;
+  for (let t = 1.5; t < 3.2; t += 0.002) { const c = holdClock(t, holds); expect(c).toBeGreaterThanOrEqual(prev - 1e-9); prev = c; }
+  // slows to a stop before the hold: speed just before it is ~0
+  near((holdClock(2, holds) - holdClock(2 - 0.005, holds)) / 0.005, 0, 0.01);
+});
+
+// ---------- slot morph ----------
+
+const sunParts = () => parts({
+  body: circle(0, 0, 100, 64),
+  strokes: Array.from({ length: 8 }, (_, k) => {
+    const a = -Math.PI / 2 + (k * Math.PI) / 4;
+    return { pts: [{ x: Math.cos(a) * 130, y: Math.sin(a) * 130 }, { x: Math.cos(a) * 170, y: Math.sin(a) * 170 }], w: 16 };
+  }),
+});
+const ringParts = () => parts({ body: rect(-120, -60, 240, 120), hole: circle(0, 0, 30, 32), shade: rect(0, -60, 120, 120) });
+
+test('parts: fixed slots, empty slots parked at a point', () => {
+  const s = sunParts(), r = ringParts();
+  expect(s.body.length).toBe(SLOTS.body); expect(s.hole.length).toBe(SLOTS.hole); expect(s.shade.length).toBe(SLOTS.shade);
+  expect(s.strokes.length).toBe(SLOTS.strokes); expect(s.strokes[3]!.pts.length).toBe(SLOTS.stroke);
+  expect(area(s.body)).toBeGreaterThan(0); expect(area(r.hole)).toBeGreaterThan(0);
+  expect(s.holeOn).toBe(false); expect(r.holeOn).toBe(true); expect(r.shadeOn).toBe(true);
+  expect(r.strokes[0]!.w).toBe(0); near(r.strokes[0]!.pts[5]!.x, 0); near(r.strokes[0]!.pts[5]!.y, 0);
+  const pin = parts({ body: circle(0, 0, 50), strokes: [{ x: 7, y: 9 }] });
+  near(pin.strokes[0]!.pts[0]!.x, 7); near(pin.strokes[0]!.pts[0]!.y, 9); // a meaningful point
+});
+
+test('SlotMorph: A → circle → B, no folding on the way', () => {
+  const A = sunParts(), B = ringParts();
+  const m = new SlotMorph(A, B, { via: { x: 0, y: 0, r: 90 } });
+  const a0 = m.at(0), a1 = m.at(1), mid = m.at(0.5);
+  near(Math.abs(area(a0.body)), Math.abs(area(A.body)), 1); near(Math.abs(area(a1.body)), 240 * 120, 30);
+  for (const p of mid.body) near(Math.hypot(p.x, p.y), 90, 1e-6); // exactly the circle at the middle
+  near(mid.body.length, SLOTS.body);
+  for (let u = 0; u <= 1; u += 0.05) expect(area(m.at(u).body)).toBeGreaterThan(0); // never turned inside out
+  // strokes are pushed outside the circle while it passes, and the sun's rays (no partner) are gone by the middle
+  for (const s of m.at(0.3).strokes) if (s.w > 0) for (const p of s.pts) expect(Math.hypot(p.x, p.y)).toBeGreaterThan(90 - 1e-6);
+  for (const s of mid.strokes) expect(s.w).toBe(0);
+  expect(mid.holeOn).toBe(true); near(Math.abs(area(mid.hole)), 0, 1e-6); // the hole regrows from its centre
+  near(Math.abs(area(a1.hole)), Math.abs(area(B.hole)), 1e-3);
+  // rays grow back out of the centre when morphing the other way
+  const back = new SlotMorph(B, A).at(1);
+  near(back.strokes[2]!.w, 16); near(centroid(back.strokes[2]!.pts).x, 150, 1);
+  // the old Morph is untouched
+  expect(new Morph([circle(0, 0, 50, 64)], [rect(-10, -10, 20, 20)], 80).at(1).length).toBe(1);
+});
+
+test('placeMatrix: area-keeping stretch, squash about the pivot; travel follows an arc', () => {
+  const m = placeMatrix({ x: 10, y: 20, scale: 2, rot: 0.4, stretch: 1.3, dir: 0.7 });
+  near(Math.abs(m[0] * m[3] - m[1] * m[2]), 4, 1e-9); // only the scale changes the area
+  const q = placeMatrix({ x: 0, y: 0, squash: 0.2, pivot: { x: 0, y: 50 } });
+  const pv = mapPt(q, { x: 0, y: 50 });
+  near(pv.x, 0); near(pv.y, 50); // the base stays on the ground
+  near(mapPt(q, { x: 10, y: 0 }).x, 12);
+  const A = { x: 0, y: 0, scale: 1 }, B = { x: 400, y: 0, scale: 2 };
+  const t0 = travel(0, A, B, { arc: { x: 0, y: -100 } }), tm = travel(0.5, A, B, { arc: { x: 0, y: -100 }, stretch: 0.12 });
+  near(t0.x, 0); near(t0.stretch!, 1); near(tm.x, 200); near(tm.y, -50); near(tm.stretch!, 1.12); near(tm.scale!, 1.5);
+  near(tm.dir!, 0, 1e-6); // moving sideways at the top of the arc
+});
+
+// ---------- one line ----------
+
+test('OneLine: markers, timing with holds, pen slows into corners, glow fades', () => {
+  const line = new OneLine([
+    { name: 'run', pts: [{ x: 0, y: 0 }, { x: 400, y: 0 }] },
+    { name: 'zig', pts: [{ x: 400, y: 0 }, { x: 420, y: -20 }, { x: 440, y: 0 }, { x: 460, y: -20 }, { x: 480, y: 0 }] },
+    { name: 'run2', pts: [{ x: 480, y: 0 }, { x: 900, y: 0 }] },
+  ], { step: 0.5 });
+  near(line.total, 400 + 4 * Math.hypot(20, 20) + 420, 1e-3);
+  near(line.markerS('zig'), 400); near(line.markerS('zig>'), 400 + 4 * Math.hypot(20, 20), 1e-3); near(line.markerS('run@0.5'), 200);
+  for (let i = 0; i < line.n; i += 97) near(line.y[i]!, line.piece[i] === 1 ? line.y[i]! : 0, 1e-6); // no wobble: on the line
+  line.timing([[0, 'run'], [1, 'run>'], [1.5, 'run>'], [3, 'run2>']]);
+  expect(line.holds).toEqual([[1, 1.5]]);
+  near(line.head(0), 0); near(line.head(1), 400, 0.5); near(line.head(1.3), 400, 0.5); near(line.head(3), line.total, 0.5);
+  near(line.tip(1.2).x, 400, 1);
+  // speed through the zigzag (corner-weighted) is lower than on the straight run after it
+  const speed = (s: number) => {
+    let lo = 1.5, hi = 3;
+    for (let k = 0; k < 50; k++) { const m = (lo + hi) / 2; if (line.head(m) < s) lo = m; else hi = m; }
+    return (line.head(lo + 0.002) - line.head(lo - 0.002)) / 0.004;
+  };
+  expect(speed(line.markerS('zig@0.5'))).toBeLessThan(speed(line.markerS('run2@0.2')) * 0.7);
+  const i = line.index(200);
+  expect(line.drawnAt(i)).toBeLessThan(0.5); // leaves the first key faster (startSlope 1.3)
+  near(line.head(line.drawnAt(i)), line.s[i]!, 1);
+  near(line.glow(i, line.drawnAt(i)), 1); near(line.glow(i, line.drawnAt(i) + 2), 0.4);
+  const wob = new OneLine([{ name: 'plant', pts: [{ x: 0, y: 0 }, { x: 300, y: 0 }], wobble: 2 }]);
+  expect(Math.max(...Array.from(wob.y, Math.abs))).toBeGreaterThan(0.3);
+  expect(Math.max(...Array.from(wob.y, Math.abs))).toBeLessThan(2 * 1.2 + 1e-6);
 });
