@@ -1,6 +1,7 @@
 // 效果库的示例入口（只在基础引擎里有；timeline.ts 找到这个文件才用它；下面的路径相对 src/library/）。网址参数选一段示例，没有参数时返回 null，用项目自己的时间线。
 //   ?sky                云海、空气光点、日出光束、镜头虚化（scenes/demo_sky.ts）
 //   ?voxel              低多边形地形 + 体素字（scenes/demo_voxel.ts）
+//   ?plate              预渲染序列帧当场景（kit/plate.ts、scenes/demo_plate.ts）；?plate=blender 读 tools/blender 渲的示例镜头（assets/blender/drop/）
 //   ?sfx=<组件名>       shaders 库的一个效果（kit/sfx.ts、scenes/demo_sfx.ts），&sfxprops=<JSON> 改 prop
 //   ?sfx=showcase       示例场景被翻页（PagePeel）翻走，露出 3D 镀铬标题（scenes/demo_sfx_title.ts）
 //   ?ref=<名>           参考片逐帧复刻的十段（scenes/ref_<名>.ts，docs/复刻配方.md 第四节），场景从 0 秒开始
@@ -20,6 +21,7 @@ export function demos(E0: E, au: AudioData): TimelineEntry[] | null {
   const q = new URLSearchParams(location.search);
   if (q.has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
   if (q.has('voxel')) return [E('demo-voxel', 'demo_voxel', 0, au.duration)];
+  for (const k of ['plate']) if (q.has(k)) return [E0(`demo-${k}`, `demo_${k}`, 0, au.duration)];
   const sfx = q.get('sfx');
   if (sfx === 'showcase') return [E('sfx-a', 'demo', 0, 3), E('sfx-title', 'demo_sfx_title', 2, au.duration)];
   if (sfx) return [E('demo-sfx', 'demo_sfx', 0, au.duration)];

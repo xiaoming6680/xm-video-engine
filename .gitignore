@@ -16,3 +16,6 @@ tts/.venv-*/
 tts/models/
 tts/.cache/
 tts/out/
+
+# Blender 渲的序列帧（tools/blender/render.py）
+assets/blender/
