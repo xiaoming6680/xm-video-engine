@@ -2,7 +2,7 @@
 
   python tools/new_project.py ../我的新MV [--vertical]
 
-复制：app/（不含 node_modules、效果库 src/library/ 和它的测试 sfxtest.html、scripts/sfx-test.ts、tests/）、analysis/（不含 models、work、setup_structure.py；分离模型和 SongFormer 环境共用基础引擎的）、tools/、tts/（配音脚本，不含环境和模型，共用基础引擎的）、.claude/skills/、docs/ 里的 TREATMENT 模板、LICENSE（→ LICENSE.engine）；
+复制：app/（不含 node_modules、效果库 src/library/ 和它的测试 sfxtest.html、scripts/sfx-test.ts、tests/）、analysis/（不含 models、work、setup_structure.py；分离模型和 SongFormer 环境共用基础引擎的）、tools/（不含配乐库的环境和采样，共用基础引擎的）、tts/（配音脚本，不含环境和模型，共用基础引擎的）、.claude/skills/、docs/ 里的 TREATMENT 模板、LICENSE（→ LICENSE.engine）；
 建好 audio/ data/ assets/ out/ refs/；写一份项目的 CLAUDE.md（三步流程，指回基础引擎的文档）；
 参考视频放 refs/，.gitignore 让它们不进仓库；--vertical 把 config.ts 改成 1080×1920。
 要用效果库里的某个模块：把它（和它 import 的库内文件）按原路径复制进新项目的 app/src/library/，import 不用改。
@@ -22,6 +22,8 @@ SKIP = shutil.ignore_patterns("node_modules", "__pycache__", "models", "work", "
 # the effects library and its tests stay in the base engine: a project copies in the modules it uses
 SKIP_APP = shutil.ignore_patterns("node_modules", "__pycache__", "*.log", "library", "sfxtest.html", "sfx-test.ts", "tests")
 SKIP_TTS = shutil.ignore_patterns("__pycache__", "models", ".venv-*", ".cache", "out", "setup_tts.py")
+# tools/audio: its environment and instrument samples (~400 MB) stay in the base engine (tools/audio/setup_audio.py)
+SKIP_TOOLS = shutil.ignore_patterns("node_modules", "__pycache__", "*.log", "_codex", ".venv", "samples")
 
 
 def main() -> None:
@@ -36,7 +38,7 @@ def main() -> None:
 
     shutil.copytree(BASE / "app", dst / "app", ignore=SKIP_APP)
     shutil.copytree(BASE / "analysis", dst / "analysis", ignore=SKIP)
-    shutil.copytree(BASE / "tools", dst / "tools", ignore=SKIP)
+    shutil.copytree(BASE / "tools", dst / "tools", ignore=SKIP_TOOLS)
     shutil.copytree(BASE / "tts", dst / "tts", ignore=SKIP_TTS)  # 配音（旁白类片子用）
     shutil.copytree(BASE / ".claude" / "skills", dst / ".claude" / "skills", ignore=SKIP)  # 复刻技能 mv-refmatch
     (dst / "docs").mkdir()
@@ -65,6 +67,11 @@ def main() -> None:
     s = tc.read_text(encoding="utf-8")
     s = re.sub(r"^SHARED = .*$", f"SHARED = {str((BASE / 'tts').as_posix())!r}", s, count=1, flags=re.M)
     tc.write_text(s, encoding="utf-8")
+    # soundtrack / sound effects (tools/audio/): the environment and samples are the base engine's too
+    ae = dst / "tools" / "audio" / "_env.py"
+    s = ae.read_text(encoding="utf-8")
+    s = re.sub(r"^SHARED = .*$", f"SHARED = {str((BASE / 'tools' / 'audio').as_posix())!r}", s, count=1, flags=re.M)
+    ae.write_text(s, encoding="utf-8")
 
     cfg = dst / "app" / "src" / "config.ts"
     if a.vertical:

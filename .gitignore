@@ -17,5 +17,8 @@ tts/models/
 tts/.cache/
 tts/out/
 
+# 配乐库：独立环境和乐器采样只在本机（tools/audio/setup_audio.py、get_samples.py）
+tools/audio/.venv/
+tools/audio/samples/
 # Blender 渲的序列帧（tools/blender/render.py）
 assets/blender/
