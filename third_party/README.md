@@ -1,6 +1,6 @@
 # 第三方参考代码
 
-这里的代码原样复制自各自的开源仓库（2026-10-03 拉取），只删掉了图片、视频、音频和大体积数据，没有改动代码。全部是 MIT 许可，各目录保留原 `LICENSE`。
+代码不在仓库里：要用时在仓库根目录跑 `python tools/fetch_refs.py`（全部）或 `python tools/fetch_refs.py <目录>`（一个），按下表的固定提交拉到 `third_party/<目录>/`（不进 git）。加 `--strip-media` 删掉图片、视频、音频，只留代码和文档。全部是 MIT 许可，各目录保留原 `LICENSE`。
 
 **这些不是引擎的一部分**，是按需移植的参考：做到需要的画风时，读对应目录，把要用的部分改写成引擎的写法（`render(f)` 纯函数、线性 HDR、`Layer2D` / `FSPass`），放进项目或引擎的 `app/src/engine/`，并在成片 `CREDITS` 里注明来源。移植方法和各模块的适用场景见 `../docs/模块目录.md`。
 
@@ -11,3 +11,4 @@
 | `claude-animation-skill/` | [buildwithhanif/claude-animation-skill](https://github.com/buildwithhanif/claude-animation-skill) `4ddb8c8`（2026-09-23） | MIT © Hanif | 手绘笔刷 `Pen`（锥形笔触、铅笔、水彩晕染、自写文字）、纸张与自然纹理、角色 rig（蚂蚁、豆豆人、chibi、小怪物）、动作游戏手感特效（hit-stop、震屏、火花）、低多边形海报风；`skill/references/` 的细节手册（detail.md）、运动（motion.md）、坑（traps.md） |
 | `clearwater/` | [Aureliengmz/clearwater](https://github.com/Aureliengmz/clearwater) `4bc8261`（2026-09-23） | MIT © Lumaris | 单文件 WebGL2 写实浅水：FFT 波浪、涟漪模拟、焦散、自适应质量 |
 | `ClaudeAnimationBase/` | [JohnHeibel/ClaudeAnimationBase](https://github.com/JohnHeibel/ClaudeAnimationBase) `0ac8bf2`（2026-09-24） | MIT © John Heibel | p5.js + p5.brush 手绘卡通流程；`ANIMATION_GUIDE.md` 的表演、时序、审片方法（联系表、逐帧条、跟随世界坐标的局部放大）。角色 Clawd 是 Anthropic 的吉祥物，**不要用在自己发布的作品里**，只学方法和画法 |
+| `mg-styles-15/` | [Vincentwei1021/mg-styles-15](https://github.com/Vincentwei1021/mg-styles-15) `49052d8`（2026-10-05） | MIT © Vincentwei1021（采样 VCSL、纸纹、照片为 CC0 / 公有领域） | 15 种 MG 风格各一支 10 秒成片的源码和提示词：逐帧手绘、拼贴、液态、玻璃、花字、HUD 等（引擎的 `?brush` `?paper` `?liquid` `?glass` `?caption` `?mg` 照它重写）；`rubric.md` 评委提示词（引擎的独立评审照它改写）；`lib/audio` 配乐音效合成库（已搬进 `tools/audio/`）；`harness/render.mjs` 网页逐帧渲染。不加 `--strip-media` 约 570 MB（含 15 支成片） |
