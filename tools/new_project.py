@@ -45,6 +45,7 @@ def main() -> None:
     shutil.copy(BASE / "docs" / "TREATMENT模板.md", dst / "docs" / "TREATMENT.md")
     shutil.copy(BASE / "LICENSE", dst / "LICENSE.engine")
     shutil.copy(BASE / ".gitignore", dst / ".gitignore")
+    shutil.copy(BASE / ".ignore", dst / ".ignore")  # search skips data/ (lyrics never get grepped into a conversation)
     with open(dst / ".gitignore", "a", encoding="utf-8") as f:
         NL = chr(10)
         f.write(NL + "# 参考视频和截图只在本机对照（别人的作品），不进仓库" + NL
@@ -90,9 +91,9 @@ def main() -> None:
         "- **流程**：`docs/新项目流程.md`，三步：节拍校验片 → 一段成片质量的样片 → 整片。样片和整片草稿给用户看；"
         "定下的事和用户的意见（标范围：镜 / 段 / 全片）记进本项目 `docs/TREATMENT.md`",
         "- **方向自己定，放手做**；不先出概念图当画面靶子（Codex 只做贴图、道具、背景）。用户认可的样片就是全片的画面标准",
-        "- 写场景前读 `docs/引擎指南.md`：输出只取决于 `f.t`，后期默认全关；渲完的静帧亲眼看",
-        "- 每轮先带音乐、原速、从头到尾连着看，再按 `docs/质量验收.md` 查缺陷",
-        "- 效果库（字符画、云海、体素、MMD、shaders 库……）在基础引擎 `app/src/library/`，用户点名要某种效果时再去拿："
+        "- 写场景前读 `docs/引擎指南.md`（一页，必读）；细节按需搜 `docs/引擎参考.md`，不通读",
+        "- 每轮先带音乐、原速、从头到尾连着看，再按 `docs/质量验收.md` 查缺陷；样片和整片草稿给用户前另开会话当评委挑刺（提示词 `docs/评审提示词.md`）",
+        "- 效果库（字符画、云海、体素、拼贴、手绘线、MG 动作、花字、液态、玻璃、序列帧、MMD、shaders 库……）在基础引擎 `app/src/library/`，用户点名要某种效果时再去拿："
         "按原路径复制进本项目的 `app/src/library/`",
         "- 用户给了参考视频、明确要复刻：`docs/复刻配方.md` 第五节",
         "- 歌词不进对话：内嵌歌词用 ffprobe 直接写成 `data/lyrics.src.lrc`，只按行号和时间戳处理",
