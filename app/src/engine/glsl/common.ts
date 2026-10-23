@@ -124,6 +124,19 @@ ${SCALE === 1 ? `float rampLine(float d, float hw, float aa) { return sat((hw - 
   float aL = aa * PX_SCALE, e = max(hw + 0.5 * aL, 0.0);
   return _boxLine(d, hw >= 0.5 * aL ? hw : e * e / (2.0 * aL), 0.5 * aa);
 }`}
+/**
+ * Grid lines at integer u, w logical px wide, in any space (a floor's world xz, uv, screen px): each pixel gets the
+ * share of its footprint the line covers, so a thin line stays even instead of breaking up; where the lines crowd
+ * closer than ~8 px (a floor toward the horizon) they fade into their mean coverage instead of moiré, the lines
+ * keeping (in u) the width they had there, so the far field is an even tone, not a solid band. Coverage 0..1.
+ * aaGrid(p, w): both families of a square grid (their union). (参考 mg-styles-15 demos/10-synthwave/index.html (MIT))
+ */
+float aaGridLine(float u, float w) {
+  float fw = max(fwidth(u), 1e-6), fl = fw * PX_SCALE;              // u per physical / logical px
+  float line = _boxLine(abs(fract(u - 0.5) - 0.5) / fw, 0.5 * w * PX_SCALE, 0.5);
+  return mix(line, min(w * min(fl, 0.12), 1.0), smoothstep(0.12, 0.4, fl));   // periods of ~8 down to 2.5 logical px
+}
+float aaGrid(vec2 p, float w) { float a = aaGridLine(p.x, w), b = aaGridLine(p.y, w); return a + b - a * b; }
 /** Anti-aliased coverage of a distance field (d<0 inside) using screen derivatives. */
 float aaFill(float d) { float w = fwidth(d); return 1.0 - smoothstep(-w, w, d); }
 /** Anti-aliased stroke of width wd around the zero set of d. */
