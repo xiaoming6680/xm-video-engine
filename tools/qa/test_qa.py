@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_video import av_offset, flash_report, transitions  # noqa: E402
+from check_video import av_offset, flash_report, transitions, phone_band_db, hit_report  # noqa: E402
 from frames import FFMPEG  # noqa: E402
 from seams import anchor, find_events  # noqa: E402
 
@@ -93,6 +93,21 @@ class SeamTest(unittest.TestCase):
         x, y, s = anchor(img)
         self.assertAlmostEqual(x, 115 / 90, delta=0.05)
         self.assertAlmostEqual(y, 45 / 90, delta=0.05)
+
+
+class PhoneHitTest(unittest.TestCase):
+    def test_sub_heavy_hit_loses_on_a_phone(self):
+        sr = 48000
+        t = np.arange(8 * sr) / sr
+        x = 0.01 * np.sin(2 * np.pi * 1000 * t)                                        # a quiet bed
+        boom = (t >= 2) & (t < 2.3)
+        x[boom] += 0.9 * np.sin(2 * np.pi * 55 * t[boom]) * np.exp(-(t[boom] - 2) * 8)  # loud, all sub
+        note = (t >= 5) & (t < 5.3)
+        x[note] += 0.3 * np.sin(2 * np.pi * 2000 * t[note])                            # quieter overall, mid band
+        tt, db = phone_band_db(x, sr)
+        (h1, _, p1), (h2, _, p2) = hit_report(tt, db, [2.05, 5.1])
+        self.assertLess(p1, 95)        # the boom does not read on a phone
+        self.assertGreaterEqual(p2, 95)
 
 
 if __name__ == "__main__":

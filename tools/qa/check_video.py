@@ -1,7 +1,7 @@
 """成片技术检查：响度 / 真峰值、空帧、闪光（3×3 分区）、音画偏移、色彩标签。docs/质量验收.md 第三节「技术」。
 
 用法：
-  python tools/qa/check_video.py out/final.mp4 [--song audio/song.wav --start 0] [--douyin out/wip/douyin_test.mp4]
+  python tools/qa/check_video.py out/final.mp4 [--song audio/song.wav --start 0] [--douyin out/wip/douyin_test.mp4] [--hits 12.4,31.0]
 
 - 闪光：画面分 3×3 区，每区按线性相对亮度 Y 找相反方向的成对变化（一次变化 ≥ 0.1，暗的一端 < 0.8，
   约等于 200 nit 显示器上 20 cd/m²、暗端 < 160 cd/m²），任一区任意 1 秒内超过 3 次闪烁（7 次变化）就不过。
@@ -9,6 +9,9 @@
 - 音画偏移：成片音轨和原曲（--song，从 --start 起）做互相关，差几个采样。AAC 编码有 1024–2048 采样的起始延迟，
   靠 MP4 的 edit list 抵消；混流丢了它，声音会整体晚 20–40 ms。默认用项目的 audio/song.wav 和 src/config.ts 的 VIDEO_START
 - --douyin 另外按抖音常见码率（1080p 约 6 Mbps）重编码一份，用来肉眼看暗部色带和糊块
+- --hits（成片秒）：重击（drop、撞击、高潮那一下）在手机外放上是不是全片最响的几下之一。手机喇叭只放得出约 350 Hz–9 kHz，
+  能量全在低频的重击在手机上会输给一个密集的高音；按这个频段每 200 ms 一窗量响度，报每个重击在全片的排名百分位。
+  只是提示，不影响退出码（MV 的混音是歌本身的；自己加音效的片子按它调）。做法参考 mg-styles-15 的 hitmax.py（MIT）
 任何一项不过时退出码为 1。
 """
 import argparse
@@ -147,6 +150,36 @@ def av_offset(video: str, song: str, start: float, dur: float = 20.0, sr: int = 
     return int(lags[int(np.argmax(vals))])
 
 
+# ---------------------------------------------------------------- 手机频段重击
+PHONE_BAND = (350.0, 9000.0)
+HIT_WIN, HIT_HOP = 0.2, 0.05
+
+
+def phone_band_db(x: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
+    """单声道信号在手机频段（4 阶巴特沃斯高通 350 Hz + 低通 9 kHz）里每 200 ms 一窗（50 ms 一跳）的 RMS 分贝：(窗中心秒, dB)。"""
+    from scipy.signal import butter, sosfilt
+    y = sosfilt(butter(4, PHONE_BAND, btype="bandpass", fs=sr, output="sos"), x)
+    w, h = int(HIT_WIN * sr), int(HIT_HOP * sr)
+    if len(y) < w:
+        return np.zeros(0), np.zeros(0)
+    c = np.concatenate([[0.0], np.cumsum(y.astype(np.float64) ** 2)])
+    starts = np.arange(0, len(y) - w + 1, h)
+    rms = np.sqrt((c[starts + w] - c[starts]) / w)
+    return (starts + w / 2) / sr, 20 * np.log10(np.maximum(rms, 1e-9))
+
+
+def hit_report(t: np.ndarray, db: np.ndarray, hits: list[float]) -> list[tuple[float, float, float]]:
+    """每个重击：(时刻, 它前后 ±150 ms 里最响一窗的 dB, 这一窗在全片所有窗里的百分位 0–100)。"""
+    out = []
+    for h in hits:
+        m = np.abs(t - h) <= 0.15
+        if not m.any():
+            continue
+        v = float(db[m].max())
+        out.append((h, v, 100.0 * float((db < v).mean())))
+    return out
+
+
 def config_video_start(root: Path) -> float:
     cfg = root / "app/src/config.ts"
     if cfg.exists():
@@ -169,6 +202,7 @@ def main() -> None:
     ap.add_argument("--song", help="原曲（量音画偏移）；默认项目的 audio/song.wav（存在时）")
     ap.add_argument("--start", type=float, help="成片 0 秒对应原曲的秒数；默认 src/config.ts 的 VIDEO_START")
     ap.add_argument("--douyin", help="按抖音常见码率重编码一份到这个路径")
+    ap.add_argument("--hits", help="重击时刻（成片秒，逗号分隔）：查手机频段上它们是不是全片最响的几下")
     a = ap.parse_args()
     bad = False
     root = Path.cwd()
@@ -212,6 +246,19 @@ def main() -> None:
     bad |= bool(fl)
     print(f"[{'OK' if not fl else '!!'}] 闪光：3×3 分区，每区每秒 ≤ {MAX_FLASH_PER_S} 次" +
           "".join(f"\n      {name}：" + "，".join(f"{t:.1f}s 起 {n:g} 次/秒" for t, n in hits) for name, hits in fl.items()))
+
+    if a.hits:
+        from frames import decode_audio
+        x = decode_audio(a.video, 0, 1e5)
+        if x is None:
+            print("[--] 没有音轨，跳过手机频段重击")
+        else:
+            t, db = phone_band_db(x.mean(axis=1), 48000)
+            top = float(np.percentile(db, 99)) if len(db) else 0.0
+            rows = hit_report(t, db, [float(s) for s in a.hits.split(",") if s.strip()])
+            print(f"[--] 手机频段（350 Hz–9 kHz）重击：全片最响 1% 的窗在 {top:.1f} dB 以上" +
+                  "".join(f"\n      {h:.2f}s：{v:.1f} dB，排在全片 {p:.0f}%" + ("" if p >= 95 else "（不在最响的 5% 里，手机上压不住）")
+                          for h, v, p in rows))
 
     if a.douyin:
         Path(a.douyin).parent.mkdir(parents=True, exist_ok=True)
