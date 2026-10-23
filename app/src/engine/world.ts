@@ -92,6 +92,33 @@ export function setupRenderer(r: THREE.WebGLRenderer) {
   }
 }
 
+import { SUBFRAME } from './subframe';
+const softBase = new WeakMap<THREE.Light, { base: THREE.Vector3; set: THREE.Vector3 }>();
+/**
+ * Soft shadows from a sun (or spot): in a multi-sample export the light's direction walks a spiral over a disc of
+ * `radius` rad across the shutter (SUBFRAME.s), so the averaged frame gets a real penumbra that widens with the distance
+ * from the occluder — the sun is about 0.005, 0.02–0.05 reads as a soft studio key. To the adaptive sampler a penumbra
+ * is like motion blur of the shadow: wider ones take more sub-frames. Call it every frame after placing the light
+ * (position relative to light.target); if the scene does not move the light, its first position stays the base. The
+ * preview and single-sample stills show the unmoved light.
+ */
+export function softSun(light: THREE.DirectionalLight | THREE.SpotLight, radius = 0.03) {
+  const rel = light.position.clone().sub(light.target.position);
+  let s = softBase.get(light);
+  if (!s || !rel.equals(s.set)) softBase.set(light, (s = { base: rel.clone(), set: rel.clone() })); // first call, or the scene moved it
+  const p = SUBFRAME.s, d = s.base.clone();
+  if (p >= 0 && radius > 0) {
+    const len = d.length(), n = d.normalize();
+    const u = new THREE.Vector3().crossVectors(n, Math.abs(n.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)).normalize();
+    const v = new THREE.Vector3().crossVectors(n, u);
+    // 2.5 turns, even area: neighbouring sub-frames get neighbouring directions (SUBFRAME)
+    const a = p * 5 * Math.PI, rr = radius * Math.sqrt(p);
+    d.addScaledVector(u, Math.cos(a) * rr).addScaledVector(v, Math.sin(a) * rr).normalize().multiplyScalar(len);
+  }
+  light.position.copy(light.target.position).add(d);
+  s.set.copy(d);
+}
+
 /** Render a scene into the engine's HDR target (linear, no tone mapping: post does that). */
 export function renderInto(r: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.Camera, out: THREE.WebGLRenderTarget, clear: THREE.Color | null = new THREE.Color(0, 0, 0)) {
   r.setRenderTarget(out);

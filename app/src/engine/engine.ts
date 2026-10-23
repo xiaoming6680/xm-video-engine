@@ -3,8 +3,8 @@
 import * as THREE from 'three';
 import { AudioData } from './audio';
 import { Lyrics } from './lyrics';
-import { Compositor, FSPass, W, H, PW, PH, SCALE, SS_TAP, makeRT, clearRT, makeRenderer } from './gl';
-import { DEFAULT_POST, Post, SHOULDER_GLSL, type PostParams } from './post';
+import { Compositor, FSPass, W, H, PW, PH, SCALE, SS_TAP, SUBFRAME, makeRT, clearRT, makeRenderer } from './gl';
+import { DEFAULT_POST, Post, SHOULDER_GLSL, loadPaper, type PostParams } from './post';
 import { Hud } from './hud';
 import type { Cue, Frame, Scene, SceneClass, SceneCtx, PostOverrides, TrackPoint } from './scene';
 import { loadFonts } from './type';
@@ -168,6 +168,9 @@ export class Engine {
     }
     this.ctx = { renderer: this.renderer, audio: this.audio, lyrics: this.lyrics, comp: this.comp, W, H, id: '', params: {}, start: 0, end: 0 };
     this.post = new Post();
+    // the paper scan takes a few hundred ms: load it before the first frame when the timeline or ?post= asks for it
+    // (a scene that returns paperTex itself awaits loadPaper() in its own init)
+    if ((this.urlPost.paperTex ?? 0) > 0 || this.timeline.some((e) => (e.post?.paperTex ?? 0) > 0)) await loadPaper();
     this.hud = new Hud();
     // with a filter (stills of chosen scenes) the others leave the timeline, so they don't composite as placeholders
     if (only) this.timeline = this.timeline.filter(only);
@@ -230,6 +233,32 @@ export class Engine {
     return out;
   }
 
+  /**
+   * Let the scenes load what the frame at t needs before it renders (Scene.prepare): every scene on screen anywhere
+   * in the frame's shutter (dt x shutter around t, as render() spreads its sub-frames; just t for one sample) gets
+   * the frame time and that span, clipped to its window. Resolves when they all have loaded, or null when none had
+   * anything to wait for: render right away (callers that may not await, like render.ts sheet, keep working). The
+   * export awaits it before every render() with the same dt, samples and shutter; the preview fires it without waiting.
+   * A scene whose prepare fails is logged, not fatal: its render() draws what it has.
+   */
+  prepare(t: number, dt = 1 / 60, samples: number | AdaptiveSampling = 1, shutter = 0.5): Promise<void> | null {
+    const w = samples === 1 ? 0 : dt * shutter;
+    // (sub-frame times are clamped at 0 in render())
+    const t0 = Math.max(0, t - w / 2), t1 = Math.max(0, t + w / 2);
+    const waits: Promise<void>[] = [];
+    for (const e of this.timeline) {
+      if (t1 < e.start || t0 >= e.end) continue;
+      const s = this.loaded.get(e.id)?.scene;
+      if (!s) continue;
+      const fail = (err: unknown) => console.error(`scene ${e.id} prepare error`, err);
+      try {
+        const p = s.prepare(t, Math.max(t0, e.start), Math.min(t1, e.end));
+        if (p) waits.push(p.catch(fail));
+      } catch (err) { fail(err); }
+    }
+    return waits.length ? Promise.all(waits).then(() => {}) : null;
+  }
+
   private frameFor(e: TimelineEntry, t: number, dt: number, seeked: boolean, preroll: boolean, under: THREE.Texture | null, tin: number, tout: number): Frame {
     const beat = this.audio.beatAt(t), bar = this.audio.barAt(t);
     return {
@@ -285,6 +314,8 @@ export class Engine {
       // sub-frame k at shutter offset u (-0.5..0.5), summed into `into`; `step` = the sub-frame spacing
       const sub = (k: number, u: number, into: THREE.WebGLRenderTarget, step: number) => {
         SS_TAP.value = cycle ? (k + (k >> 2)) % 4 : -1;
+        SUBFRAME.k = k;
+        SUBFRAME.s = cycle ? u + 0.5 : -1;
         // (clamped at 0: before the song no scene is active, and frame 0 would come out half black)
         const res = this.composite(Math.max(0, t + dt * shutter * u), step, seeked && k === 0);
         this.accum.u.src!.value = res.outTex;
@@ -293,6 +324,7 @@ export class Engine {
         if (d < nearest - 1e-9 || (d < nearest + 1e-9 && u > POST_U)) { nearest = d; post = res.post; }
       };
       clearRT(r, this.sumRT, [0, 0, 0], 0);
+      SUBFRAME.frame = t;
       if (!adaptive) {
         n = samples;
         for (let k = 0; k < n; k++) sub(k, (k + 0.5) / n - 0.5, this.sumRT, dt / n);
@@ -314,6 +346,8 @@ export class Engine {
         }
       }
       SS_TAP.value = -1;
+      SUBFRAME.k = SUBFRAME.s = -1;
+      SUBFRAME.frame = NaN;
       this.comp.draw(r, this.sumRT.texture, this.avgRT, { mode: 'replace', opacity: 1 / n, premult: false });
       outTex = this.avgRT.texture;
     }

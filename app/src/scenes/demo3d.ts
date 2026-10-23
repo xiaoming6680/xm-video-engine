@@ -1,9 +1,9 @@
 // 3D 示例场景：three.js 场景渲染进引擎的 HDR 目标（world.ts setupRenderer）、相机路径（CamPath，时间参数化、速度连续）、
-// 景深（kit3d.ts GBuf + DofPass）、跟着底鼓动的物体。用来确认 3D 管线能跑，新项目可以删掉。
+// 景深（kit3d.ts GBuf + DofPass）、软阴影（softSun）、跟着底鼓动的物体。导出多采样时网格边缘自动抗锯齿（gl.ts jitterRenders）。用来确认 3D 管线能跑，新项目可以删掉。
 import * as THREE from 'three';
 import { Scene, type Frame } from '../engine/scene';
 import { W, H } from '../engine/gl';
-import { CamPath, setCam, setupRenderer } from '../engine/world';
+import { CamPath, setCam, setupRenderer, softSun } from '../engine/world';
 import { GBuf, DofPass } from '../engine/kit3d';
 import { HEX, LIN } from '../engine/palette';
 import { mulberry32 } from '../engine/util';
@@ -20,6 +20,7 @@ export default class Demo3D extends Scene {
   cols!: THREE.InstancedMesh;
   phase: number[] = [];
   path!: CamPath;
+  sun = new THREE.DirectionalLight(0xffffff, 2.2);
   m = new THREE.Matrix4();
 
   override init() {
@@ -27,7 +28,7 @@ export default class Demo3D extends Scene {
     const [r, g, b] = LIN.ink;
     this.scene.background = new THREE.Color(r, g, b);
     this.scene.fog = new THREE.Fog(this.scene.background as THREE.Color, 18, 60);
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    const sun = this.sun;
     sun.position.set(-8, 14, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -69,6 +70,7 @@ export default class Demo3D extends Scene {
     }
     this.cols.instanceMatrix.needsUpdate = true;
 
+    softSun(this.sun, 0.04);
     setCam(this.cam, this.path.at(f.t));
     this.g.render(this.ctx.renderer, this.scene, this.cam, this.scene.background as THREE.Color);
     this.dof.focus = this.cam.position.distanceTo(new THREE.Vector3(0, 1, 0));

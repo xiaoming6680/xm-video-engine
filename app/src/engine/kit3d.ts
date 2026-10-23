@@ -46,6 +46,7 @@ export class VolLight {
   g = 0.35;
   constructor(cam: THREE.PerspectiveCamera | THREE.OrthographicCamera, size = 2048) {
     this.cam = cam;
+    this.cam.userData.jitter = false; // a depth map from the light, not a view (gl.ts jitterRenders)
     this.cam.layers.enable(0);
     this.cam.layers.disable(2);
     this.map = new THREE.WebGLRenderTarget(size, size, { depthBuffer: true });

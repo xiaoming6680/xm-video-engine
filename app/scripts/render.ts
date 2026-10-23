@@ -135,12 +135,13 @@ async function sheet(page: Page, times: number[], cols: number, out: string) {
     const c = cv.getContext('2d')!;
     c.fillStyle = '#222'; c.fillRect(0, 0, cv.width, cv.height);
     const src = document.getElementById('c') as HTMLCanvasElement;
-    times.forEach((t: number, i: number) => {
-      P.still(t);
+    // (await: a scene that loads per frame, Scene.prepare, has its frame only once still() resolves)
+    for (const [i, t] of (times as number[]).entries()) {
+      await P.still(t);
       const x = pad + (i % cols) * (cw + pad), y = pad + Math.floor(i / cols) * (ch + lab + pad);
       c.drawImage(src, x, y + lab, cw, ch);
       c.fillStyle = '#ddd'; c.font = '13px monospace'; c.fillText(`${t.toFixed(2)}s`, x + 2, y + 13);
-    });
+    }
     return cv.toDataURL('image/png');
   }, { times, cols });
   mkdirSync(path.dirname(out), { recursive: true });
@@ -225,10 +226,11 @@ try {
       const P = (window as any).__pdoom;
       const ms: number[] = [];
       const buf = new Uint8Array(P.width * P.height * 4);
-      P.still(from);
+      await P.still(from);
       const used: Record<number, number> = {};
       for (let t = from; t < to; t += 1 / 60) {
         const a = performance.now();
+        await P.engine.prepare(t, 1 / 60, samples, shutter); // per-frame loads (Scene.prepare) count as frame time
         const k = P.engine.render(t, 1 / 60, false, samples, shutter);
         used[k] = (used[k] ?? 0) + 1;
         await P.engine.readPixelsAsync(buf);

@@ -79,6 +79,50 @@ export function mulberry32(seed: number) {
  */
 export const frameIdx = (t: number) => Math.round(t * 60);
 
+// ---- per-element shutter and held (stepped) time ----
+import { SUBFRAME } from './subframe';
+
+/**
+ * Per-element shutter. Motion blur averages sub-frames spread over the shutter around the frame's time; an element that
+ * takes its time through this sees the spread scaled by `amount`: 0 = crisp (no motion blur: flat colour shapes, type,
+ * held drawings), 1 = the full shutter, 0.5 = half (a camera that should smear less than what flies past it). Outside a
+ * multi-sample render (preview, single-sample stills) it returns t.
+ */
+export function shutterT(t: number, amount = 0): number {
+  const f = SUBFRAME.frame;
+  return Number.isNaN(f) ? t : f + (t - f) * amount;
+}
+
+/**
+ * Held time: the clock advances `rate` times a second (drawings per second; 24 fps animation on twos = 12, on threes = 8),
+ * counted from t0. Crisp, so a held drawing never blurs into the next one. Pick a rate that divides the export fps (60:
+ * 30, 20, 15, 12, 10, 6; 30: 15, 10, 6) or drawings are held for uneven frame counts and the motion stutters.
+ */
+export function stepT(t: number, rate: number, t0 = 0): number {
+  const c = shutterT(t, 0);
+  return t0 + Math.floor((c - t0) * rate + 1e-6) / rate;
+}
+
+/**
+ * Exposure sheet: `[[from, rate], …]` in time order — from each time on, the drawing rate (on ones / twos / threes:
+ * fast action on ones, the dance on twos, a hold on threes). Steps restart at each entry. Before the first entry: t.
+ */
+export function exposure(t: number, sheet: readonly (readonly [from: number, rate: number])[]): number {
+  const c = shutterT(t, 0);
+  let e: readonly [number, number] | undefined;
+  for (const x of sheet) if (c >= x[0] - 1e-9) e = x;
+  return e ? stepT(c, e[1], e[0]) : t;
+}
+
+/**
+ * A hand-placed offset that changes `rate` times a second (the animator put the cut-out down again): [dx, dy] within ±amp
+ * px, seeded. Paper lying on the table at 6, a held drawing at 12. Crisp like stepT.
+ */
+export function handJitter(t: number, rate: number, amp: number, seed = 0): [number, number] {
+  const k = Math.floor(shutterT(t, 0) * rate + 1e-6);
+  return [(hash(k, seed, 1) * 2 - 1) * amp, (hash(k, seed, 2) * 2 - 1) * amp];
+}
+
 /** Stateless hash of integers/floats to [0,1). */
 export function hash(...xs: number[]) {
   let h = 2166136261 >>> 0;

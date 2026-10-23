@@ -58,8 +58,15 @@ function setupExport() {
       for (let i = 0; ; i++) { const t = from + i / fps; if (t >= to - 1e-9) break; frames.push({ t, p: engine.track(t) }); }
       return { fps, frames, beats: engine.audio.beats, downbeats: engine.audio.downbeats };
     },
-    /** Render a single frame at t (seeks as needed). */
-    still(t: number, samples: number | AdaptiveSampling = 1, shutter = 0.5) { return engine.render(t, 1 / 60, true, samples, shutter); },
+    /**
+     * Render a single frame at t (seeks as needed). Returns the sub-frame count, or a promise of it when a scene had
+     * to load something first (Scene.prepare: await it; page.evaluate does).
+     */
+    still(t: number, samples: number | AdaptiveSampling = 1, shutter = 0.5) {
+      const go = () => engine.render(t, 1 / 60, true, samples, shutter);
+      const ready = engine.prepare(t, 1 / 60, samples, shutter);
+      return ready ? ready.then(go) : go();
+    },
     /** The last rendered frame as a full-resolution (PW x PH) PNG, base64 (for stills at scale > 1). */
     async png() {
       const px = await engine.readPixelsAsync(), row = PW * 4;
@@ -91,9 +98,17 @@ function setupExport() {
       // warm-up: render one frame before the range so the first frame is sequential for stateful scenes
       const S = opts.samples ?? 1, SH = opts.shutter ?? 0.5;
       // (adaptive sampling only runs stateless scenes: one sample is enough for the warm-up)
-      if (n0 > 0) engine.render((n0 - 1) * dt, dt, false, typeof S === 'number' ? S : 1, SH);
+      if (n0 > 0) {
+        const S0 = typeof S === 'number' ? S : 1;
+        await engine.prepare((n0 - 1) * dt, dt, S0, SH);
+        engine.render((n0 - 1) * dt, dt, false, S0, SH);
+      }
       const used: Record<number, number> = {}; // sub-frames per frame -> frames
       for (let n = n0; n < n1; n++) {
+        // what this frame needs (Scene.prepare: plates are loaded frame by frame), then start on the next frame's
+        // while this one renders and reads back
+        await engine.prepare(n * dt, dt, S, SH);
+        if (n + 1 < n1) void engine.prepare((n + 1) * dt, dt, S, SH);
         const k = engine.render(n * dt, dt, false, S, SH);
         used[k] = (used[k] ?? 0) + 1;
         await engine.readPixelsAsync(buf);
@@ -169,6 +184,8 @@ function setupPlayer() {
       if (loop && t >= loop[1]) seek(loop[0]);
       if (audio.ended) playing = false;
     }
+    // scenes that load per frame (Scene.prepare) start loading now and show what they have until it arrives
+    void engine.prepare(t, 1 / 60);
     engine.render(t, 1 / 60);
     scrub.value = String(t);
     frames++;

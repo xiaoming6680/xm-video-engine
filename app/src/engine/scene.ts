@@ -68,6 +68,8 @@ export interface Cue {
   name: string;
   /** What it should land on: 'beat', 'downbeat' (default) or a sound-event type ('kick', 'snare', 'clap', …). */
   on?: string;
+  /** A sound effect for tools/audio/sfx_mix.py --cues: a synth call ('hit', 'whoosh', 'pop(pitch=1.2)', …) or a wav path. */
+  sfx?: string;
 }
 
 /**
@@ -95,6 +97,17 @@ export abstract class Scene {
 
   /** Load/create resources. Called once before first render. */
   init(): Promise<void> | void {}
+
+  /**
+   * Per-frame async loading (Engine.prepare), for what is too big to hold for the whole scene: a pre-rendered image
+   * sequence, video frames. Load whatever render() needs at song times t0..t1 — the frame's shutter, so every
+   * sub-frame is covered (t0 = t1 = t for one sample); `t` is the frame's own time. Return a promise when there is
+   * something to wait for, nothing when it is all there. The export awaits it before rendering the frame (and may
+   * call it ahead, for the next frame, while this one renders); the preview does not wait: render() stays synchronous
+   * and must draw something sensible meanwhile (the last image it had). Must be cheap when called again for the
+   * same frame. Not called for a stateful scene's preroll or the phosphor refreshes.
+   */
+  prepare(_t: number, _t0: number, _t1: number): Promise<void> | void {}
 
   /** Reset internal state (called on seeks for stateful scenes). */
   reset(): void {}

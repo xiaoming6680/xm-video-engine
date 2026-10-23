@@ -28,10 +28,42 @@ int ssK0() { return ssTap < 0 ? 0 : ssTap; }
 int ssK1() { return ssTap < 0 ? 4 : ssTap + 1; }
 float ssWeight() { return ssTap < 0 ? 0.25 : 1.0; }`;
 
+export { SUBFRAME } from './subframe';
+import { SUBFRAME } from './subframe';
+
+/** The rgss(k) taps of glsl/common.ts, in px. */
+const RGSS: readonly [number, number][] = [[0.125, -0.375], [0.375, 0.125], [-0.125, 0.375], [-0.375, -0.125]];
+const savedProj = new THREE.Matrix4();
+
+/**
+ * Sub-pixel camera jitter: in a multi-sample export every render through a perspective camera is shifted by one of the
+ * 4 rotated-grid taps (in px of the target it renders into), one per quarter of the shutter (SUBFRAME.s), so meshes get
+ * the same 4x supersampling as the shaders that take rgss taps: anti-aliased edges for free. The camera's own matrices
+ * are left as they were (toUV and the like see the unjittered view). Orthographic cameras (fullscreen passes, 2D layers)
+ * are left alone unless `cam.userData.jitter = true` (an orthographic 3D view, e.g. isometric); `cam.userData.jitter =
+ * false` opts a perspective camera out (a light's depth view). Cube targets are never jittered.
+ */
+function jitterRenders(r: THREE.WebGLRenderer) {
+  const render = r.render.bind(r);
+  r.render = (scene: THREE.Object3D, cam: THREE.Camera) => {
+    const k = SUBFRAME.s < 0 ? -1 : Math.min(3, Math.floor(SUBFRAME.s * 4)), rt = r.getRenderTarget();
+    const on = k >= 0 && ((cam.userData.jitter as boolean | undefined) ?? (cam as THREE.PerspectiveCamera).isPerspectiveCamera === true);
+    if (!on || (rt as { isWebGLCubeRenderTarget?: boolean } | null)?.isWebGLCubeRenderTarget) return render(scene, cam);
+    const [ox, oy] = RGSS[k]!, w = rt ? rt.width : PW, h = rt ? rt.height : PH;
+    const p = cam.projectionMatrix, e = p.elements;
+    savedProj.copy(p);
+    // clip.xy += ndcOffset * clip.w: rows 0 and 1 of the projection += offset * row 3 (perspective and orthographic alike)
+    for (let j = 0; j < 4; j++) { e[j * 4] = e[j * 4]! + (2 * ox / w) * e[j * 4 + 3]!; e[j * 4 + 1] = e[j * 4 + 1]! + (2 * oy / h) * e[j * 4 + 3]!; }
+    cam.projectionMatrixInverse.copy(p).invert();
+    try { render(scene, cam); } finally { p.copy(savedProj); cam.projectionMatrixInverse.copy(p).invert(); }
+  };
+}
+
 /**
  * The engine's renderer on `canvas` (PW x PH). Alpha and a half-float drawing buffer: the canvas doubles as the float
  * surface library/kit/sfx.ts copies engine textures into WebGPU through (drawingBufferStorage needs alpha); the engine's final
- * blit writes alpha 1, so it shows and reads back exactly as an opaque canvas.
+ * blit writes alpha 1, so it shows and reads back exactly as an opaque canvas. Renders through 3D cameras are jittered
+ * per sub-frame (jitterRenders).
  */
 export function makeRenderer(canvas: HTMLCanvasElement) {
   const r = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
@@ -39,6 +71,7 @@ export function makeRenderer(canvas: HTMLCanvasElement) {
   r.setSize(PW, PH, false);
   const gl = r.getContext() as WebGL2RenderingContext & { drawingBufferStorage?(format: number, w: number, h: number): void };
   if (gl.getExtension('EXT_color_buffer_float') && gl.drawingBufferStorage) gl.drawingBufferStorage(gl.RGBA16F, PW, PH);
+  jitterRenders(r);
   return r;
 }
 
