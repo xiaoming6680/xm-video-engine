@@ -3,6 +3,9 @@
   cutout   only near-white connected to the image border is background, so white inside the object stays; the edge
            gets a soft alpha from how far each pixel is from white, and the white is un-blended out of the edge colour
            (no white fringe). --see-through: every near-white patch wider than a few px goes too (window panes, a ring)
+  edge     --edge PX: a die-cut sticker border baked in, PX wide, anti-aliased (distance field at 2x): the object over
+           a white silhouette grown by PX, holes filled (not with --see-through). Its shadow then follows the white edge
+           (library/kit/tactile.ts drawLifted)
   trim     to the object plus a margin
   outline  alpha thresholded, grown by OUTLINE_PAD px, outermost contour simplified to SIMPLIFY px: a line can be
            sewn / walked around the sticker (kit/morph.ts PathWalk)
@@ -13,6 +16,7 @@ the app serves them at /assets/props/ (vite.config.ts repo-assets).
   python tools/assets/props.py balloon chair        # art/raw/balloon.png, art/raw/chair.png
   python tools/assets/props.py "s_*"                # a glob over art/raw/
   python tools/assets/props.py window --see-through
+  python tools/assets/props.py "s_*" --edge 10      # stickers with a 10 px white border
 
 For tools/codex_gen.py: one isolated object, centred, generous empty margin all round, plain pure white background.
 """
@@ -30,6 +34,7 @@ RAW = ROOT / "art" / "raw"
 OUT = ROOT / "assets" / "props"
 OUTLINE_PAD = 14
 SIMPLIFY = 2.5
+EDGE_RGB = (255, 255, 255)
 
 
 def cutout(rgb: np.ndarray, see_through: bool = False) -> np.ndarray:
@@ -55,6 +60,21 @@ def cutout(rgb: np.ndarray, see_through: bool = False) -> np.ndarray:
     return np.dstack([np.clip(obj, 0, 255), a * 255]).astype(np.uint8)
 
 
+def add_edge(rgba: np.ndarray, px: float, fill_holes: bool = True) -> np.ndarray:
+    """The object over a white border `px` wide: distance to the object at 2x, coverage of the grown shape, back to 1x."""
+    a = rgba[..., 3].astype(np.float32) / 255
+    h, w = a.shape
+    m2 = cv2.resize(a, (w * 2, h * 2), interpolation=cv2.INTER_LINEAR) > 0.5
+    if fill_holes:
+        m2 = ndimage.binary_fill_holes(m2)
+    d2 = cv2.distanceTransform((~m2).astype(np.uint8), cv2.DIST_L2, 5)  # 2x px to the object, 0 inside
+    e = cv2.resize(np.clip(2 * px + 0.5 - d2, 0, 1).astype(np.float32), (w, h), interpolation=cv2.INTER_AREA)
+    # object over the edge (straight alpha): A = a + e(1 - a), colour = (obj a + white e (1 - a)) / A
+    A = a + e * (1 - a)
+    col = (rgba[..., :3].astype(np.float32) * a[..., None] + np.array(EDGE_RGB, np.float32) * (e * (1 - a))[..., None]) / np.maximum(A, 1e-4)[..., None]
+    return np.dstack([np.clip(col, 0, 255), A * 255]).astype(np.uint8)
+
+
 def outline(alpha: np.ndarray) -> list[list[float]]:
     m = (alpha > 110).astype(np.uint8)
     m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * OUTLINE_PAD + 1,) * 2))
@@ -64,8 +84,10 @@ def outline(alpha: np.ndarray) -> list[list[float]]:
     return cv2.approxPolyDP(c, SIMPLIFY, True)[:, 0, :].astype(float).tolist()
 
 
-def run(src: Path, see_through: bool) -> None:
+def run(src: Path, see_through: bool, edge: float = 0) -> None:
     rgba = cutout(np.asarray(Image.open(src).convert("RGB")), see_through)
+    if edge > 0:
+        rgba = add_edge(rgba, edge, fill_holes=not see_through)
     a = rgba[..., 3]
     ys, xs = np.where(a > 8)
     if not len(xs):
@@ -84,7 +106,13 @@ def run(src: Path, see_through: bool) -> None:
 
 def main() -> None:
     see_through = "--see-through" in sys.argv
-    pats = [a for a in sys.argv[1:] if not a.startswith("--")]
+    args = sys.argv[1:]
+    edge = 0.0
+    if "--edge" in args:
+        i = args.index("--edge")
+        edge = float(args[i + 1])
+        del args[i:i + 2]
+    pats = [a for a in args if not a.startswith("--")]
     if not pats:
         sys.exit(__doc__)
     OUT.mkdir(parents=True, exist_ok=True)
@@ -93,7 +121,7 @@ def main() -> None:
         if not srcs:
             print(f"{pat}: no {RAW.relative_to(ROOT).as_posix()}/{pat}.png")
         for src in srcs:
-            run(src, see_through)
+            run(src, see_through, edge)
 
 
 if __name__ == "__main__":
