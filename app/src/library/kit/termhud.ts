@@ -1,14 +1,29 @@
-// Narrative HUD pieces for Canvas2D layers: the interface that tells the story in kaomoji.exe (bar plates, terminal
-// pop-ups typing commands, the party-monitor panel, labelled call-outs, comic captions, rolling counters, reticles).
-// Everything is a pure function of the time you pass in: typing, blinking and counting are computed, not stepped.
-//   plate       "06/63" block (+ a small sub-line)              metaLine   "E2 80 A2 · 150 bpm · 4/4 · swiss grid"
-//   caption     comic narration box                              callout    leader line + label box + tag, reveals with p
-//   panel       title bar, rows of label + segmented bar + value, log lines
-//   termWindow  pop-up terminal: lines typed at a rate from their start time, blinking block cursor
-//   odometer    rolling digits (the last digit rolls between values)      fmtBig  1,724,783,546 / 9.9×10²⁰ / int32 wrap
-//   reticle     ring with ticks and gaps (targeting, the DEFENDER scope)  barText "▮▮▮▮▯▯▯ 64%"
+// 讲故事的界面部件（Canvas2D 图层）：kaomoji.exe 里的小节牌、弹出终端、队伍监控面板、标注、漫画旁白框、滚动计数、
+// 瞄准环；以及科幻 HUD（FUI）的字和面板。全是传进来的 t 的纯函数：打字、闪烁、计数都是算出来的，不是一帧帧累加的。
+//
+// 为什么要 FUI 这一套：HUD 画面元素多，全都一样亮就是一墙噪点，眼睛不知道看哪。参考片的办法：
+//   · 亮度分三档（100 / 60 / 30 %），“正在说话”的那块最亮，别的退到 60 %，背景 30 %，按段落切换，引着视线走；
+//   · 字在泛光之后单独合成：自己带 1.5 / 3 px 的辉光，再在背景上压一圈 0.6 的黑晕，字从发光的线和网格里被托出来；
+//   · 标签和数字出现时逐字乱码解码，面板通电时闪 4 帧；
+//   · 重击那一帧快门关上（整帧取同一瞬间），那个瞬间是清楚的一张，而不是一团糊。
+// 参考 mg-styles-15 demos/22-hud（hud.js、post.js；Vincentwei1021，MIT）。泛光后的文字层我们先用 Canvas2D 做：
+// glowText 的黑晕 = 一道粗黑描边，辉光 = 同色的 shadowBlur。
+//
+//   plate       "06/63" 小节牌（+ 小字副行）                   metaLine   "E2 80 A2 · 150 bpm · 4/4 · swiss grid"
+//   caption     漫画旁白框                                      callout    引线 + 标签框 + 标记，随 p 画出
+//   panel       标题栏 + 一行行“标签 + 分段条 + 数值” + 日志
+//   termWindow  弹出终端：每行从自己的起始时间按速率打出，块状光标闪烁
+//   odometer    滚动数字（个位在两值之间滚）                    fmtBig  1,724,783,546 / 9.9×10²⁰ / int32 回绕
+//   reticle     带刻度和缺口的瞄准环                            barText "▮▮▮▮▯▯▯ 64%"
+//   ── FUI ──
+//   tier / TIER 亮度分档随时间切换（每次切换在 ±0.12 s 里过渡）
+//   flick       通电闪烁：0.7、0.1、1、0.45 四帧后常亮（按 stepT，不糊）
+//   decode      逐字乱码解码（标签用字母符号，rollDigits 只滚数字）；每个字解开后就不再变
+//   glowText    辉光 + 黑晕的字
+//   fuiPanel    FUI 面板框：编号、解码标签、中文副标、画出来的标题线、左竖线、角标
+//   hitT        重击帧关快门：在 hits 里任一时刻所在的那一帧，返回这一帧的单一时刻（shutterT(t, 0)）
 import { F, font } from '../../engine/type';
-import { frameIdx, clamp, ease } from '../../engine/util';
+import { frameIdx, clamp, ease, lerp, smoothstep, hash, shutterT } from '../../engine/util';
 
 type Ctx = CanvasRenderingContext2D;
 const MONO = (px: number, wt = 500) => font(F.mono(wt), px);
@@ -191,4 +206,199 @@ export function reticle(c: Ctx, x: number, y: number, r: number, o: { rot?: numb
   }
   for (let k = 0; k < g; k++) { const a = (k / g) * Math.PI * 2; c.beginPath(); c.moveTo(Math.cos(a) * r * 1.12, Math.sin(a) * r * 1.12); c.lineTo(Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86); c.stroke(); }
   c.restore();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// FUI（科幻 HUD）：亮度分档、通电闪烁、乱码解码、辉光黑晕字、面板框、重击帧。
+
+/** The reference's cyan ink: lines and type, dimmed labels, the deep tone of empty tracks, white-hot highlights, the black. */
+export const FUI = { cyan: '#00E5FF', dim: '#0B7C8C', deep: '#0E3A42', hot: '#E8FEFF', ink: '#020A0D' } as const;
+
+/** Brightness tiers: the element the story is on, the rest of the interface, the background. */
+export const TIER = { hi: 1, mid: 0.6, lo: 0.3 } as const;
+
+/**
+ * An element's brightness over time from keys [time, level] (in time order; levels usually TIER.hi / mid / lo). The
+ * first key's level holds before it; each later key switches over ±`blend` s around its time. Multiply the element's
+ * alpha by it, so the eye goes to whatever is at 100 %.
+ */
+export function tier(t: number, keys: readonly (readonly [time: number, level: number])[], blend = 0.12): number {
+  if (keys.length === 0) return 1;
+  let v = keys[0]![1];
+  for (let i = 1; i < keys.length; i++) v = lerp(v, keys[i]![1], smoothstep(keys[i]![0] - blend, keys[i]![0] + blend, t));
+  return v;
+}
+
+const FLICK = [0.7, 0.1, 1, 0.45];
+/**
+ * Power-in flicker of an element switched on at t0: 0 before, then 0.7, 0.1, 1, 0.45 for one drawing each (`rate` a
+ * second, 30 = the reference's frames), then 1. Crisp: constant over a frame's shutter.
+ */
+export function flick(t: number, t0: number, rate = 30): number {
+  const c = shutterT(t, 0);
+  if (c < t0) return 0;
+  const f = Math.floor((c - t0) * rate + 1e-6);
+  return f >= FLICK.length ? 1 : FLICK[f]!;
+}
+
+/** Glyphs a scrambled label cycles through (no I / O / Q: they read as digits). */
+export const SCRAMBLE = 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789#%&/<>';
+
+export interface DecodeOpts {
+  /** Seconds until every character has resolved (5 frames at 30 fps). */
+  dur?: number;
+  /** New random glyphs a second (30; pick a rate that divides 60). */
+  rate?: number;
+  /** Glyphs the unresolved characters show. */
+  glyphs?: string;
+  /** 0 = characters resolve in random order, 1 = strictly left to right. */
+  order?: number;
+  /** Characters that never scramble (whitespace never does). */
+  keep?: RegExp;
+  /** Seed: give each label its own, or labels decoding together scramble alike. */
+  id?: number;
+}
+
+/**
+ * A label decoding from t0: '' before, random glyphs that resolve character by character over `dur` (each stays once
+ * it has resolved), then the text. Length never changes (mono type does not jitter). Crisp: one state per frame.
+ */
+export function decode(t: number, t0: number, text: string, o: DecodeOpts = {}): string {
+  const c = shutterT(t, 0);
+  if (c < t0) return '';
+  const dur = o.dur ?? 1 / 6;
+  if (c - t0 >= dur) return text;
+  const chars = [...text], n = chars.length, id = o.id ?? 0, gl = [...(o.glyphs ?? SCRAMBLE)], ord = clamp(o.order ?? 0.3);
+  const step = Math.floor((c - t0) * (o.rate ?? 30) + 1e-6), p = (c - t0) / dur;
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    const ch = chars[i]!;
+    if (/\s/.test(ch) || o.keep?.test(ch)) { out += ch; continue; }
+    // when this character resolves (0..0.9 of dur): part random, part its place in the line
+    const at = 0.9 * lerp(hash(id, i, 17), n > 1 ? i / (n - 1) : 0, ord);
+    out += p >= at ? ch : gl[Math.floor(hash(id, i, step, 9) * gl.length)]!;
+  }
+  return out;
+}
+
+/** Digits of a reading rolling in (decode on the digits only: signs, points, units stay put). */
+export const rollDigits = (t: number, t0: number, text: string, id = 0, dur = 0.2) =>
+  decode(t, t0, text, { id, dur, glyphs: '0123456789', keep: /[^0-9]/ });
+
+function withAlpha(col: string, a: number): string {
+  const h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(col.trim());
+  if (h) {
+    const s = h[1]!.length === 3 ? h[1]!.split('').map((x) => x + x).join('') : h[1]!, n = parseInt(s, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+  const m = /^rgba?\(([^)]+)\)$/i.exec(col.trim());
+  if (m) { const [r, g, b] = m[1]!.split(',').map((x) => x.trim()); return `rgba(${r},${g},${b},${a})`; }
+  return col;
+}
+
+export interface GlowOpts {
+  color?: string;
+  /** Strength of the glow (0..1, 0.6) in `glowColor` (the type's colour), its blur (px, 4 ≈ the reference's 1.5 / 3 px taps). */
+  glow?: number;
+  glowColor?: string;
+  glowR?: number;
+  /** How much the background darkens within `haloW` px of the glyphs (0.6 over 3 px); 0 = no halo. */
+  halo?: number;
+  haloW?: number;
+  /** Opacity (the brightness tier); multiplies the context's own. */
+  alpha?: number;
+  align?: CanvasTextAlign;
+  baseline?: CanvasTextBaseline;
+  /** Letter spacing (px). */
+  tracking?: number;
+}
+
+/**
+ * HUD type that reads over glowing lines and grids: a dark halo knocked into the background round the glyphs, then the
+ * crisp glyphs with a soft glow of their own colour. Draw it after the lines (and after any glow pass over them).
+ * Returns the advance width.
+ */
+export function glowText(c: Ctx, fnt: string, text: string, x: number, y: number, o: GlowOpts = {}): number {
+  if (!text) return 0;
+  const ga = c.globalAlpha * (o.alpha ?? 1), col = o.color ?? FUI.cyan;
+  c.save();
+  c.font = fnt; c.textAlign = o.align ?? 'left'; c.textBaseline = o.baseline ?? 'alphabetic';
+  c.letterSpacing = `${o.tracking ?? 0}px`;
+  const w = c.measureText(text).width - (o.tracking ?? 0);
+  if (ga > 0.002) {
+    const halo = o.halo ?? 0.6, hw = o.haloW ?? 3;
+    if (halo > 0) {
+      c.globalAlpha = ga * halo; c.lineJoin = 'round'; c.strokeStyle = '#000'; c.fillStyle = '#000'; c.lineWidth = 2 * hw;
+      c.strokeText(text, x, y); c.fillText(text, x, y);
+    }
+    c.globalAlpha = ga; c.fillStyle = col;
+    const g = o.glow ?? 0.6;
+    if (g > 0) { c.shadowColor = withAlpha(o.glowColor ?? col, clamp(g)); c.shadowBlur = o.glowR ?? 4; }
+    c.fillText(text, x, y);
+  }
+  c.restore();
+  return w;
+}
+
+export interface FuiPanelOpts {
+  /** "01", the label (decodes as the panel powers on), its Chinese subtitle (right-aligned, dim). */
+  idx?: string;
+  label: string;
+  cn?: string;
+  /** Seed for the label's scramble (default: from the position). */
+  id?: number;
+  /** Ink, dim ink, and the brightness tier. */
+  color?: string;
+  dim?: string;
+  alpha?: number;
+  /** Label size (px). */
+  size?: number;
+  /** Only the lines ('geo': before a glow pass over them), only the type ('txt'), or both. */
+  pass?: 'geo' | 'txt' | 'both';
+}
+
+/**
+ * FUI panel chrome switched on at t0: header (index, decoding label, Chinese subtitle), a header rule that draws across
+ * with an accent bar, a left rule growing down, closing corner ticks and three status squares. The panel's content is
+ * yours (below y + 16). Returns the power-in flicker (0 = not on yet: skip the content).
+ */
+export function fuiPanel(c: Ctx, t: number, t0: number, x: number, y: number, w: number, h: number, o: FuiPanelOpts): number {
+  const p = ease.outCubic(clamp((t - t0) / 0.5));
+  if (p <= 0) return 0;
+  const a = flick(t, t0), ga = o.alpha ?? 1, col = o.color ?? FUI.cyan, dim = o.dim ?? FUI.dim, s = o.size ?? 14, pass = o.pass ?? 'both';
+  if (pass !== 'geo') {
+    c.save(); c.globalAlpha *= ga;
+    if (o.idx) glowText(c, font(F.mono(500), s - 1), o.idx, x, y, { color: dim, alpha: a, glow: 0.3 });
+    glowText(c, font(F.mono(600), s), decode(t, t0, o.label, { id: o.id ?? x * 7 + y }), x + s * 1.7, y, { color: col, alpha: a, tracking: s * 0.18 });
+    if (o.cn) glowText(c, font(F.sans(400), s), o.cn, x + w, y, { color: dim, alpha: a * ease.outCubic(clamp((t - t0 - 0.12) / 0.3)), align: 'right', tracking: s * 0.1, glow: 0.3 });
+    c.restore();
+  }
+  if (pass !== 'txt') {
+    const line = (x0: number, y0: number, x1: number, y1: number, k = 1) => { if (k <= 0) return; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x0 + (x1 - x0) * Math.min(1, k), y0 + (y1 - y0) * Math.min(1, k)); c.stroke(); };
+    c.save();
+    const A = c.globalAlpha * ga;
+    c.lineWidth = 1;
+    c.globalAlpha = A * 0.85; c.strokeStyle = col; line(x, y + 9.5, x + w, y + 9.5, p);
+    c.globalAlpha = A; c.fillStyle = col; c.fillRect(x, y + 8, 18 * p, 3);
+    c.globalAlpha = A * 0.8; c.strokeStyle = dim; line(x + 0.5, y + 16, x + 0.5, y + h, ease.outCubic(clamp((t - t0 - 0.1) / 0.5)));
+    const q = ease.outCubic(clamp((t - t0 - 0.3) / 0.3));
+    if (q > 0) {
+      c.globalAlpha = A * 0.9 * q;
+      line(x + 0.5, y + h + 0.5, x + 12, y + h + 0.5); line(x + w - 12, y + h + 0.5, x + w, y + h + 0.5); line(x + w - 0.5, y + h - 12, x + w - 0.5, y + h + 0.5);
+      c.fillStyle = dim; for (let i = 0; i < 3; i++) c.fillRect(x + w - 6 - i * 7, y + 14, 4, 4);
+    }
+    c.restore();
+  }
+  return a;
+}
+
+/**
+ * Closed shutter on impact frames: on the frame (60 fps grid, frameIdx) of any time in `hits`, every sub-frame gets that
+ * frame's own instant (shutterT(t, 0)), so the hit is one crisp state; elsewhere t is passed through (normal blur).
+ * Feed it to whatever should land sharp on the beat: the banner slamming in, the brackets snapping shut.
+ */
+export function hitT(t: number, hits: readonly number[]): number {
+  const f = shutterT(t, 0), k = frameIdx(f);
+  for (const h of hits) if (frameIdx(h) === k) return f;
+  return t;
 }
