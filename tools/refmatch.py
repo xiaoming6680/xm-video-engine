@@ -12,8 +12,9 @@
   python tools/refmatch.py sheet 参考.mp4 --ref-start 0 --cuts --from 0 --to 25.6 --ours out/intro/v1.mp4 -o out/refmatch/intro_cuts.jpg
   # 4. 连续帧条：从 t 起连续 n 帧（30 fps），上原片下引擎，看每帧长了什么、动了多少（单帧对照看不出“太静”）
   python tools/refmatch.py strip 参考.mp4 --ref-start 0 --ours out/intro/v1.mp4 --t 12.0,16.2 [--n 8] -o out/refmatch/strip.jpg
-  # 5. 运动量：逐段 / 逐小节的每帧变化量（320×180 灰度相邻帧平均差），原片 vs 引擎，加曲线图
-  python tools/refmatch.py motion 参考.mp4 --ref-start 0 --ours out/intro/v1.mp4 [--from 0 --to 25.6] [--bar 1.6 | --seg 开机:0:8 --seg 海报:8:7.4] -o out/refmatch/motion.png
+  # 5. 运动量：逐段 / 逐小节的镜内变化（320×180 灰度相邻帧平均差的均值，去掉切点），原片 vs 引擎，加曲线图
+  #    一拍二的片子（30 fps 下一半帧不变）加 --step 2 按画面算；--flow 加光流（动了多远）
+  python tools/refmatch.py motion 参考.mp4 --ref-start 0 --ours out/intro/v1.mp4 [--from 0 --to 25.6] [--bar 1.6 | --seg 开机:0:8 --seg 海报:8:7.4] [--step 2] [--flow] -o out/refmatch/motion.png
   # 6. 视频对照：原速 n 遍 + 慢放 1 遍，配原片声音（只给自己看，不发布）。从头连着看一整段：--loops 1 --slow 0
   python tools/refmatch.py video 参考.mp4 --ref-start 56.0 --ours out/wip/stack.mp4 [--dur 2.6] [--loops 3] [--slow 4] -o out/refmatch/stack.mp4
   # 接缝（切点前后锚点、运动、亮度、色调、声音的跳变）：python tools/qa/seams.py ours.mp4 --ref 参考.mp4 --ref-start 0
@@ -225,17 +226,48 @@ def cmd_strip(a):
 
 
 def cmd_motion(a):
-    """逐段每帧变化量：原片 vs 引擎（同一段时间，30 fps，320×180 灰度相邻帧平均差）。"""
+    """逐段运动量：原片 vs 引擎（同一段时间，30 fps，320×180 灰度）。
+    镜内变化 = 相邻帧平均差的均值（去掉 > --cut 的切点 / 跳变帧）。不用中位数：一拍二（每秒 15 张画）在 30 fps 下一半帧
+    和上一帧相同，中位数会塌成 0。--step 2 改成按画面算（每隔 2 帧比一次 = 每张画的变化），参考片和我们都一拍二时更直观；
+    --flow 加光流（每隔 2 帧，像素 @320 宽，窗口里有切点的不算），看“动了多远”而不只是“变了多少”。"""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fps = 30
+    fps, step, cut = 30, max(1, a.step), a.cut
     t0 = a.from_ if a.from_ is not None else 0.0
     t1 = a.to if a.to is not None else min(duration(a.ours) + a.ours_start, duration(a.ref) - a.ref_start)
-    r = frame_diff(decode(a.ref, a.ref_start + t0, t1 - t0, fps))
-    o = frame_diff(decode(a.ours, t0 - a.ours_start, t1 - t0, fps))
+    rf = decode(a.ref, a.ref_start + t0, t1 - t0, fps)
+    of = decode(a.ours, t0 - a.ours_start, t1 - t0, fps)
+    r, o = frame_diff(rf), frame_diff(of)                      # r[k]：帧 k → k+1
     n = min(len(r), len(o))
     r, o = r[:n], o[:n]
+
+    def by_step(d, frames):
+        """--step k：帧 i → i+k 的变化，只取 i = 0, k, 2k …（每 k 帧一个值，对应到 i 那一格）；窗口里有切点的记 nan。"""
+        out = np.full(len(d), np.nan)
+        f = frames.astype(np.float32)
+        for i in range(0, len(d) - step + 1, step):
+            out[i] = np.nan if (d[i:i + step] > cut).any() else float(np.abs(f[i + step] - f[i]).mean())
+        return out
+
+    def flow(frames, d):
+        import cv2
+        out = np.full(len(d), np.nan)
+        for i in range(0, len(d) - 1, 2):
+            if (d[i:i + 2] > cut).any():
+                continue
+            fl = cv2.calcOpticalFlowFarneback(frames[i], frames[i + 2], None, 0.5, 3, 15, 3, 5, 1.2, 0)
+            out[i] = float(np.sqrt((fl ** 2).sum(-1)).mean())
+        return out
+
+    rm = by_step(r, rf) if step > 1 else np.where(r > cut, np.nan, r)
+    om = by_step(o, of) if step > 1 else np.where(o > cut, np.nan, o)
+    rfl = of_ = None
+    if a.flow:
+        try:
+            rfl, of_ = flow(rf, r), flow(of, o)
+        except ImportError:
+            print("--flow 要 opencv：pip install opencv-python（先不算光流）")
     if a.seg:
         segs = []
         for x in a.seg:
@@ -248,33 +280,43 @@ def cmd_motion(a):
         while k * bar < t1 - 1e-6:
             segs.append((f"{k + 1:02d}", max(t0, k * bar), min(t1, (k + 1) * bar)))
             k += 1
-    print(f"{'段':<8}{'时间':>14}  {'原片':>5}{'引擎':>6}{'比':>6}   冻结帧    跳变>25")
+    mean = lambda x: float(np.nanmean(x)) if np.isfinite(x).any() else float("nan")
+    unit = f"每 {step} 帧" if step > 1 else "每帧"
+    print(f"镜内变化 = {unit}平均差的均值（去掉 > {cut:g} 的切点帧）；动的帧 = 变化 > 0.3 的帧占比（一拍二约 50%）")
+    print(f"{'段':<8}{'时间':>14}  {'原片':>5}{'引擎':>6}{'比':>6}   动的帧%    跳变>{cut:g}" + ("   光流 原/引擎/比" if rfl is not None else ""))
     worst = []
     for name, st, en in segs:
         i0, i1 = int(round((st - t0) * fps)), int(round((en - t0) * fps))
         rs, os_ = r[i0:i1], o[i0:i1]
         if len(rs) == 0:
             continue
-        mr, mo = float(np.median(rs)), float(np.median(os_))
-        ratio = mo / max(mr, 0.5)
-        mark = "" if 0.7 <= ratio <= 1.4 else ("  ← 太静" if ratio < 0.7 else "  ← 太躁")
+        mr, mo = mean(rm[i0:i1]), mean(om[i0:i1])
+        ratio = mo / max(mr, 0.05) if np.isfinite(mr) and np.isfinite(mo) else float("nan")
+        mark = "" if not np.isfinite(ratio) or 0.7 <= ratio <= 1.4 else ("  ← 太静" if ratio < 0.7 else "  ← 太躁")
         if mark:
             worst.append(name)
-        print(f"{name:<8}{st:6.2f}–{en:6.2f}  {mr:6.1f}{mo:6.1f}{ratio:6.2f}  {int((rs < 0.3).sum()):>4}/{int((os_ < 0.3).sum()):<4} {int((rs > 25).sum()):>4}/{int((os_ > 25).sum()):<4}{mark}")
-    mr, mo = float(np.median(r)), float(np.median(o))
-    print(f"{'全段':<8}{t0:6.2f}–{t1:6.2f}  {mr:6.1f}{mo:6.1f}{mo / max(mr, 0.5):6.2f}")
+        line = (f"{name:<8}{st:6.2f}–{en:6.2f}  {mr:6.2f}{mo:6.2f}{ratio:6.2f}  {100 * (rs > 0.3).mean():4.0f}/{100 * (os_ > 0.3).mean():<4.0f}"
+                f"  {int((rs > cut).sum()):>4}/{int((os_ > cut).sum()):<4}")
+        if rfl is not None:
+            fr, fo = mean(rfl[i0:i1]), mean(of_[i0:i1])
+            line += f"  {fr:5.2f}{fo:6.2f}{fo / max(fr, 0.01) if np.isfinite(fr) and np.isfinite(fo) else float('nan'):6.2f}"
+        print(line + mark)
+    mr, mo = mean(rm), mean(om)
+    print(f"{'全段':<8}{t0:6.2f}–{t1:6.2f}  {mr:6.2f}{mo:6.2f}{mo / max(mr, 0.05):6.2f}")
     print(f"比在 0.7–1.4 之外：{', '.join(worst) or '无'}")
     plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
     ts = t0 + (np.arange(n) + 1) / fps
-    sm = lambda x: np.convolve(x, np.ones(5) / 5, mode="same")
+    # 曲线：切点帧去掉，按 0.5 s 窗口取均值（一拍二的 0 和非 0 交替不会把曲线拉成锯齿）
+    w = max(1, int(round(0.5 * fps)))
+    sm = lambda x: np.array([mean(x[max(0, i - w // 2):i + w // 2 + 1]) for i in range(len(x))])
     fig, ax = plt.subplots(figsize=(16, 4.5), dpi=110)
-    ax.plot(ts, sm(r), color="#d9a400", lw=1.4, label="参考")
-    ax.plot(ts, sm(o), color="#2a9d5c", lw=1.4, label="引擎")
+    ax.plot(ts, sm(rm), color="#d9a400", lw=1.4, label="参考")
+    ax.plot(ts, sm(om), color="#2a9d5c", lw=1.4, label="引擎")
     for _, st, _ in segs:
         ax.axvline(st, color="#999", lw=0.5)
     ax.set_xlabel("秒")
-    ax.set_ylabel("每帧变化量（0–255，5 帧平滑）")
+    ax.set_ylabel(f"镜内变化（{unit}，0–255，0.5 s 均值）")
     ax.set_xlim(t0, t1)
     ax.legend(loc="upper right")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -326,6 +368,8 @@ def main():
     p.add_argument("--t", required=True); p.add_argument("--n", type=int, default=8); p.add_argument("--width", type=int, default=2400); p.add_argument("-o", "--out", required=True)
     p = sp.add_parser("motion"); p.add_argument("ref"); p.add_argument("--ref-start", type=float, required=True); p.add_argument("--ours", required=True); p.add_argument("--ours-start", type=float, default=0.0)
     p.add_argument("--from", dest="from_", type=float); p.add_argument("--to", type=float); p.add_argument("--bar", type=float, help="one row per bar of this length (s); default 1.6"); p.add_argument("--seg", action="append", help="name:start:dur (engine time), repeatable"); p.add_argument("-o", "--out", required=True)
+    p.add_argument("--step", type=int, default=1, help="2: per drawing (frame i -> i+2, every other frame) for footage on twos"); p.add_argument("--cut", type=float, default=25.0, help="a frame changing more than this is a cut, left out of the means")
+    p.add_argument("--flow", action="store_true", help="also optical flow per drawing (needs opencv)")
     p = sp.add_parser("video"); p.add_argument("ref"); p.add_argument("--ref-start", type=float, required=True); p.add_argument("--ours", required=True); p.add_argument("--dur", type=float)
     p.add_argument("--loops", type=int, default=3); p.add_argument("--slow", type=float, default=4); p.add_argument("--title"); p.add_argument("-o", "--out", required=True)
     a = ap.parse_args()
