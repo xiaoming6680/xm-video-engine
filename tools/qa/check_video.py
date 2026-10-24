@@ -1,18 +1,19 @@
-"""成片技术检查：响度 / 真峰值、空帧、闪光（3×3 分区）、音画偏移、色彩标签。docs/质量验收.md 第三节「技术」。
+"""成片技术检查：响度 / 真峰值、空帧、音画偏移、色彩标签；闪光（3×3 分区）只在 --flash 时查、只供参考。
+docs/质量验收.md 第三节「技术」。
 
 用法：
-  python tools/qa/check_video.py out/final.mp4 [--song audio/song.wav --start 0] [--douyin out/wip/douyin_test.mp4] [--hits 12.4,31.0]
+  python tools/qa/check_video.py out/final.mp4 [--song audio/song.wav --start 0] [--douyin out/wip/douyin_test.mp4] [--hits 12.4,31.0] [--flash]
 
-- 闪光：画面分 3×3 区，每区按线性相对亮度 Y 找相反方向的成对变化（一次变化 ≥ 0.1，暗的一端 < 0.8，
-  约等于 200 nit 显示器上 20 cd/m²、暗端 < 160 cd/m²），任一区任意 1 秒内超过 3 次闪烁（7 次变化）就不过。
-  整帧平均亮度只看得见大面积同时闪；局部大闪（半边画面一亮一暗）要分区才看得出
+- --flash 闪光（只供参考：不标不过、不影响退出码，不必为它改画面）：画面分 3×3 区，每区按线性相对亮度 Y 找相反方向的
+  成对变化（一次变化 ≥ 0.1，暗的一端 < 0.8，约等于 200 nit 显示器上 20 cd/m²、暗端 < 160 cd/m²），列出任一区任意 1 秒内
+  超过 3 次闪烁（7 次变化）的时刻。整帧平均亮度只看得见大面积同时闪；局部大闪（半边画面一亮一暗）要分区才看得出
 - 音画偏移：成片音轨和原曲（--song，从 --start 起）做互相关，差几个采样。AAC 编码有 1024–2048 采样的起始延迟，
   靠 MP4 的 edit list 抵消；混流丢了它，声音会整体晚 20–40 ms。默认用项目的 audio/song.wav 和 src/config.ts 的 VIDEO_START
 - --douyin 另外按抖音常见码率（1080p 约 6 Mbps）重编码一份，用来肉眼看暗部色带和糊块
 - --hits（成片秒）：重击（drop、撞击、高潮那一下）在手机外放上是不是全片最响的几下之一。手机喇叭只放得出约 350 Hz–9 kHz，
   能量全在低频的重击在手机上会输给一个密集的高音；按这个频段每 200 ms 一窗量响度，报每个重击在全片的排名百分位。
   只是提示，不影响退出码（MV 的混音是歌本身的；自己加音效的片子按它调）。做法参考 mg-styles-15 的 hitmax.py（MIT）
-任何一项不过时退出码为 1。
+色彩标签、响度和真峰值、音画偏移、空帧任何一项不过时退出码为 1（闪光、重击只是提示）。
 """
 import argparse
 import json
@@ -203,6 +204,7 @@ def main() -> None:
     ap.add_argument("--start", type=float, help="成片 0 秒对应原曲的秒数；默认 src/config.ts 的 VIDEO_START")
     ap.add_argument("--douyin", help="按抖音常见码率重编码一份到这个路径")
     ap.add_argument("--hits", help="重击时刻（成片秒，逗号分隔）：查手机频段上它们是不是全片最响的几下")
+    ap.add_argument("--flash", action="store_true", help="也查闪光（3×3 分区）：只供参考，不影响退出码")
     a = ap.parse_args()
     bad = False
     root = Path.cwd()
@@ -241,11 +243,11 @@ def main() -> None:
     bad |= bool(segs)
     print(f"[{'OK' if not segs else '!!'}] 空帧 / 黑场：{len(segs)} 段" + "".join(f"\n      {s:.2f}–{e:.2f}s" for s, e in segs))
 
-    ys, fps = region_luma(a.video)
-    fl = flash_report(ys, fps)
-    bad |= bool(fl)
-    print(f"[{'OK' if not fl else '!!'}] 闪光：3×3 分区，每区每秒 ≤ {MAX_FLASH_PER_S} 次" +
-          "".join(f"\n      {name}：" + "，".join(f"{t:.1f}s 起 {n:g} 次/秒" for t, n in hits) for name, hits in fl.items()))
+    if a.flash:
+        ys, fps = region_luma(a.video)
+        fl = flash_report(ys, fps)
+        print(f"[--] 闪光（只供参考，不必为它改画面）：3×3 分区，每区每秒超过 {MAX_FLASH_PER_S} 次的" + ("：无" if not fl else "") +
+              "".join(f"\n      {name}：" + "，".join(f"{t:.1f}s 起 {n:g} 次/秒" for t, n in hits) for name, hits in fl.items()))
 
     if a.hits:
         from frames import decode_audio

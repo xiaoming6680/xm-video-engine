@@ -40,7 +40,7 @@
 - **接 Blender**：Blender 渲的序列帧当一个镜头放进时间线，相机逐帧对齐，引擎在上面叠字、叠 3D、走后期
 - **效果库**：手绘线、拼贴、液态、玻璃、综艺花字、科幻 HUD、MG 动作、云海、体素、字符画、MMD 角色，外加 200 个 WebGPU 着色器效果
 - **后期按需开**：默认全关，CRT、VHS、故障、像素化、调色板、Riso 套印、扫描纸纹都是参数
-- **检查**：卡点偏差、响度、闪光、接缝、元素轨迹、手机外放上重击压不压得住；给人看之前，另一个 AI 当评委挑刺
+- **检查**：卡点偏差、响度、接缝、元素轨迹、手机外放上重击压不压得住；给人看之前，另一个 AI 当评委挑刺
 - **声音**：给成片叠合成音效、给没有歌的片子做配乐、克隆音色读旁白
 - **发布**：抖音版合成、封面排版、BT.709 色彩标签一路保留
 
@@ -52,7 +52,7 @@ flowchart LR
   B --> C[场景代码<br/>TypeScript · three.js · Canvas]
   D[Blender 序列帧] -.-> C
   C --> E[逐帧渲染<br/>运动模糊 · 抗锯齿 · 4K]
-  E --> F[检查<br/>卡点 · 响度 · 闪光 · AI 评审]
+  E --> F[检查<br/>卡点 · 响度 · AI 评审]
   F --> G[发布<br/>抖音版 · 封面 · 音效]
 ```
 
@@ -89,7 +89,7 @@ pip install numpy scipy librosa soundfile torch torchaudio audio-separator openc
 3. **样片**：定方向，做一段 10–15 秒、带声音、成片质量的样片，它就是这支片的画面标准
 4. **整片**：在 `app/src/scenes/` 写场景，`app/src/timeline.ts` 排时间线，做完整首
 5. **评审**：给人看之前，另开一个 AI 会话按[评审提示词](docs/评审提示词.md)挑刺，改到没有致命问题
-6. **导出、发布**：`render-par.ts` 出 4K，`tools/qa/check_video.py` 查响度和闪光，`tools/douyin_mux.py` 出抖音版，`tools/cover_title.py` 排封面；署名填在 `app/src/config.ts` 的 `CREDIT`
+6. **导出、发布**：`render-par.ts` 出 4K，`tools/qa/check_video.py` 查响度和色彩标签，`tools/douyin_mux.py` 出抖音版，`tools/cover_title.py` 排封面；署名填在 `app/src/config.ts` 的 `CREDIT`
 
 每一步的命令见[使用指南](docs/使用指南.md)，检查点和坑见[新项目流程](docs/新项目流程.md)。
 

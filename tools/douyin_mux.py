@@ -8,7 +8,7 @@
       [--crf 18] [--maxrate 30M] [--fps 60]
 
 画面通常先用 render-par.ts 单独渲（--from/--to 选段、--query 传场景参数）。输出保持 BT.709 标签，
-做完用 tools/qa/check_video.py 查响度、闪光和标签。
+做完用 tools/qa/check_video.py 查响度和标签。
 """
 import argparse
 import json

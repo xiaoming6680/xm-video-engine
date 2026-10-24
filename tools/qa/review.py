@@ -8,7 +8,7 @@
       -> out/qa/<名>_strip_24-27.4.jpg  两个时刻之间均匀取 8 帧排成一条（看关键动作，0.2 秒一帧就取 n = 时长 / 0.2）
 
 --start：视频第 0 秒对应的歌曲时间（src/config.ts VIDEO_START），段落和 RMS 按它对齐。
-时间参数都是视频时间。响度、闪光、空帧、色彩标签用 check_video.py。
+时间参数都是视频时间。响度、空帧、色彩标签用 check_video.py（闪光加 --flash，只供参考）。
 """
 import argparse
 import json
