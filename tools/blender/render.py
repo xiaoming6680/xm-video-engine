@@ -2,7 +2,8 @@
 #   blender -b --factory-startup -P tools/blender/render.py -- --shots shots_example --shot drop [--exr] [参数…]
 # 输出 assets/blender/<镜头>/<歌曲帧号 60fps>.png（--exr：半浮点 .exr），引擎 library/kit/plate.ts 按帧号读；
 # 同目录写 cam.json（每帧相机，plate.ts 的格式，axes = blender）和 frames.json（渲好了哪些帧）。
-# 先把整段的相机和动画物体逐帧打上关键帧（Cycles 的运动模糊要用前后半帧的位置），再逐帧渲染；已经渲好的帧跳过（断点续渲）。
+# 先把整段的相机和动画物体逐帧打上关键帧（每帧的快门开、中、关三处：Cycles 的运动模糊只在快门内取位置），再逐帧渲染；
+# 已经渲好的帧跳过（断点续渲）。材质 / world 节点里的数随时间变：lib.held_keys（插值要改成 CONSTANT，见 lib.py）。
 #
 # 参数（都在 -- 后面）：
 #   --shots 模块名或 .py 路径（默认 shots_example；模块名先在 tools/blender/ 找，再在项目根目录的 blender/ 找）
@@ -19,7 +20,8 @@
 # shots 模块：SHOTS = {'名字': 函数(P) → dict}，P 是 lib.Project（拍、小节、歌词行时间）。返回的 dict：
 #   id, t0, t1（歌曲秒）, fps=60, res=(1920, 1080), render={samples, view, exposure, …（lib.setup_render 的参数）},
 #   build(S) → S：搭场景（S 里已有 'P'、'cam'、'shot'），把要动的物体放进 S 或按名字能在 bpy.data.objects 里找到；
-#   at(S, t) → 这一刻的状态（只取决于 t）：
+#   at(S, t) → 这一刻的状态（只取决于 t；t 也会是快门开 / 关的子帧时刻）。镜头里要硬切（换机位、换物体）时按
+#     lib.frame_of(t, fps)（这一帧自己的画面）判断，快门内的子帧就和这一帧判到同一边，切点不会被运动模糊拖糊：
 #     'cam': {eye, target, lens=50, fstop=2.8, focus=None（= 到 target 的距离）, roll=0}（或旧写法元组 (eye, target, lens, fstop, focus[, roll])）
 #     'objs': {名字: {loc, rot（欧拉）| quat, scale}}（或旧写法 (loc, rot)）   'lights': {灯名: 能量}   'exposure': ev
 #     'points': {名字: (x, y, z)}  这一帧画面里要让引擎对齐的点（Blender 坐标），写进 cam.json
@@ -218,7 +220,10 @@ def main():
         frames = list(range(a, b + 1, every))
     if not frames:
         raise SystemExit('没有要渲的帧（--from / --to 在镜头范围外？）')
-    kf = list(range(min(frames) - 1, max(frames) + 2))
+    # 每帧在快门开、中、关三处打关键帧（f−h、f、f+h，h = 快门 / 2，运动模糊只读这几处），首尾各多一帧：
+    # 镜头里按这一帧自己的画面（round(t·fps)）决定的切点，就不会被线性插值在快门内拖过切点、糊成两个画面
+    h = sc.render.motion_blur_shutter / 2 if sc.render.use_motion_blur else 0.0
+    kf = sorted({min(frames) - 1, max(frames) + 1} | {f + d for f in frames for d in ((-h, 0.0, h) if h else (0.0,))})
     t_ = time.time()
     n = bake_all(S, shot, cam, kf)
     print(f'KEYS {len(kf)} frames, camera + {n} objects {time.time() - t_:.1f}s', flush=True)

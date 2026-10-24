@@ -312,6 +312,23 @@ def nodes(m):
     return m.node_tree.nodes, m.node_tree.links, next(n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
 
 
+def smooth_range(N, L, value, a, b, lo=0.0, hi=1.0):
+    """Map Range（SMOOTHSTEP）：value 在 a 时是 lo、在 b 时是 hi，中间平滑过渡，返回输出插槽。value 是插槽或数。
+    Cycles 的 SMOOTHSTEP 要 From Min < From Max，反过来（a > b）整段输出 0、不报错；所以 a > b 时这里交换 From 和 To，
+    自己写 Map Range 要反向时也一样：换 To Min / To Max，不要换 From。"""
+    if a > b:
+        a, b, lo, hi = b, a, hi, lo
+    mr = N.new('ShaderNodeMapRange')
+    mr.interpolation_type = 'SMOOTHSTEP'
+    mr.inputs['From Min'].default_value, mr.inputs['From Max'].default_value = a, b
+    mr.inputs['To Min'].default_value, mr.inputs['To Max'].default_value = lo, hi
+    if isinstance(value, (int, float)):
+        mr.inputs['Value'].default_value = value
+    else:
+        L.new(value, mr.inputs['Value'])
+    return mr.outputs['Result']
+
+
 def add_rough_noise(m, lo, hi, scale=40.0, detail=6.0, coord='Object', bump=0.0, vec_scale=(1, 1, 1)):
     """粗糙度用噪声在 lo..hi 间变化（指纹、磨损、灰），可选一点凹凸。"""
     N, L, b = nodes(m)
@@ -839,6 +856,93 @@ def studio_world(ambient='#EADCF0', strength=0.35, sky='#F6E8F1', horizon=0.42, 
     return use_world(w)
 
 
+# 影棚灯带的默认排布：(方位角 °, 半宽 °, 亮度)，宽窄、亮度各不相同，中间留黑（If The Sun Burns Out 的金杯）
+STRIPS = ((0, 6, 3.8), (58, 2.5, 6.4), (128, 11, 2.3), (196, 4, 5.1), (284, 8, 3.2))
+
+
+def studio_strips(strips=STRIPS, color='#FFD9A8', strength=1.0, spin=0.0, wash=0.35, elev=(-80, -58, 33, 60), at=()):
+    """给金属用的影棚灯带 world：只在反射里看得见的一圈竖条灯（相机和漫反射看到黑），金属映出几条亮带、中间是暗，
+    比映一整片亮天空（studio_world）更有金属感。
+      strips  每条 (方位角 °, 半宽 °, 亮度)：亮度从中心到 0.45 倍半宽是满的，到半宽处平滑落到 0
+      spin    整圈每秒转多少度（0 = 不转）：光带一条条扫过金属面（驱动器按帧算，运动模糊照常）
+      wash    灯带之间的一层暗底（相对灯带亮度）：金面不至于全黑、保住本色
+      elev    仰角带 (起, 满, 满, 止)（°）：从脚下 −80° 渐亮到 −58°，到仰角 33° 后渐暗、60° 以上没有
+      at      [(帧, 颜色, 亮度倍数)]：从这一帧起换色、降亮（held_keys，整段快门同一个值），例如熄灯后换冷蓝降到 0.55
+    world.cycles.sampling_method 设成 'NONE'：Cycles 按非光泽射线建的重要性图在这里全黑，不关会把它当成没有光，
+    反射里的灯带变成噪点。灯带只管反射，照亮物体还得靠灯。"""
+    w = bpy.data.worlds.new('strips')
+    try:
+        w.use_nodes = True
+    except AttributeError:
+        pass
+    nt = w.node_tree
+    for n in list(nt.nodes):
+        nt.nodes.remove(n)
+    N, L = nt.nodes, nt.links
+
+    def math_node(op, a=None, b=None):
+        m = N.new('ShaderNodeMath')
+        m.operation = op
+        for i, v in enumerate((a, b)):
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                m.inputs[i].default_value = v
+            else:
+                L.new(v, m.inputs[i])
+        return m.outputs[0]
+
+    tc = N.new('ShaderNodeTexCoord')
+    vec = tc.outputs['Generated']                    # world 里 Generated 是视线方向
+    if spin:
+        rot = N.new('ShaderNodeVectorRotate')
+        rot.rotation_type = 'Z_AXIS'
+        drive_time(rot.inputs['Angle'], math.radians(spin))
+        L.new(vec, rot.inputs['Vector'])
+        vec = rot.outputs['Vector']
+    sp = N.new('ShaderNodeSeparateXYZ')
+    L.new(vec, sp.inputs[0])
+    az = math_node('ARCTAN2', sp.outputs['Y'], sp.outputs['X'])
+    total = None
+    for deg, half, gain in strips:
+        wr = N.new('ShaderNodeMath')
+        wr.operation = 'WRAP'
+        L.new(math_node('SUBTRACT', az, math.radians(deg)), wr.inputs[0])
+        wr.inputs[1].default_value, wr.inputs[2].default_value = -math.pi, math.pi
+        d = math_node('ABSOLUTE', wr.outputs[0])
+        s = smooth_range(N, L, d, math.radians(half), math.radians(half * 0.45), 0.0, gain)
+        total = s if total is None else math_node('ADD', total, s)
+    sn = [math.sin(math.radians(e)) for e in elev]
+    band = math_node('MULTIPLY', smooth_range(N, L, sp.outputs['Z'], sn[0], sn[1], 0.0, 1.0),
+                     smooth_range(N, L, sp.outputs['Z'], sn[3], sn[2], 0.0, 1.0))
+    lum = math_node('MULTIPLY', band, math_node('ADD', total, wash))
+    gain = N.new('ShaderNodeMath')
+    gain.operation = 'MULTIPLY'
+    L.new(lum, gain.inputs[0])
+    bg = N.new('ShaderNodeBackground')
+    if at:
+        held_keys(gain.inputs[1], [(0, strength)] + [(f, strength * g) for f, _, g in at])
+        held_keys(bg.inputs['Color'], [(0, rgba(color))] + [(f, rgba(c)) for f, c, _ in at])
+    else:
+        gain.inputs[1].default_value = strength
+        bg.inputs['Color'].default_value = rgba(color)
+    L.new(gain.outputs[0], bg.inputs['Strength'])
+    dark = N.new('ShaderNodeBackground')
+    dark.inputs['Strength'].default_value = 0.0
+    lp = N.new('ShaderNodeLightPath')
+    mx = N.new('ShaderNodeMixShader')
+    L.new(lp.outputs['Is Glossy Ray'], mx.inputs[0])
+    L.new(dark.outputs[0], mx.inputs[1])
+    L.new(bg.outputs[0], mx.inputs[2])
+    out = N.new('ShaderNodeOutputWorld')
+    L.new(mx.outputs[0], out.inputs['Surface'])
+    try:
+        w.cycles.sampling_method = 'NONE'
+    except AttributeError:
+        pass
+    return use_world(w)
+
+
 # ------------------------------------------------------------------ 逐帧关键帧（运动模糊要用）
 def bake(idb, path, frames, values, index=-1, interp='LINEAR'):
     """给 idb（物体 / 相机数据 / 灯数据）的 path 一次写入整段关键帧：frames[i] 帧的值是 values[i]（数，或每个分量一组）。
@@ -867,6 +971,39 @@ def bake(idb, path, frames, values, index=-1, interp='LINEAR'):
         fc.keyframe_points.foreach_set('co', co)
         fc.keyframe_points.foreach_set('interpolation', [kind] * n)
         fc.update()
+
+
+def held_keys(sock, keys):
+    """材质 / world 节点插槽的值按帧换：keys = [(帧, 值), …]（值是数，或颜色这类一组数），每个值从那一帧前半帧起保持
+    （CONSTANT），整段快门看到同一个值，下一个关键帧之前不变。帧号用镜头的 fps（lib.frame_of(t, fps)）。
+    坑：Blender 5 给节点插槽 keyframe_insert 时不认 preferences.edit.keyframe_new_interpolation_type（clear_scene 设的
+    LINEAR 也没用），插出来是 Bezier——值从第 0 帧起就在慢慢往下一个关键帧滑（金杯反射的天空提前好几秒变暗）。
+    所以插完要到 action 的 F 曲线上把插值改成 CONSTANT：5.x 是分层 action（layers → strips → channelbags → fcurves），
+    旧版是 action.fcurves。"""
+    for f, v in keys:
+        sock.default_value = v
+        sock.keyframe_insert('default_value', frame=f - 0.5)
+    path, act = sock.path_from_id('default_value'), sock.id_data.animation_data.action
+    try:
+        fcs = list(act.fcurves)
+    except AttributeError:
+        fcs = [fc for ly in act.layers for st in ly.strips for cb in st.channelbags for fc in cb.fcurves]
+    for fc in fcs:
+        if fc.data_path == path:
+            for k in fc.keyframe_points:
+                k.interpolation = 'CONSTANT'
+            fc.update()
+
+
+def drive_time(sock, rate, offset=0.0, fps=None):
+    """节点插槽随时间连续走：值 = offset + 歌曲秒 × rate（驱动器表达式按当前帧算，含运动模糊的子帧）。
+    fps 默认取场景的（setup_render 设好以后再调）。"""
+    sc = bpy.context.scene
+    fps = fps or sc.render.fps / sc.render.fps_base
+    fc = sock.driver_add('default_value')
+    fc.driver.type = 'SCRIPTED'
+    fc.driver.expression = f'{offset} + frame / {fps} * {rate}'
+    return fc
 
 
 # ------------------------------------------------------------------ 缓动和插值
