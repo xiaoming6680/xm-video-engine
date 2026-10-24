@@ -13,13 +13,14 @@
 //   ?sfx=showcase       示例场景被翻页（PagePeel）翻走，露出 3D 镀铬标题（scenes/demo_sfx_title.ts）
 //   ?ref=<名>           参考片逐帧复刻的十段（scenes/ref_<名>.ts，docs/复刻配方.md 第四节），场景从 0 秒开始
 //   ?ref=intro          原片前 16 小节连着复刻（粗分镜），配原声加 --song refs/kaomoji（tools/grid_song.py 建）
+//   ?ref=typewarp       字的进场 / 拉丝 / 长弯错位和手绘墨线（kit/typewarp.ts、tegaki.ts sketchLine；If The Sun Burns Out 的做法）
 import type { TimelineEntry } from '../engine/engine';
 import type { AudioData } from '../engine/audio';
 import { PDOOM_LOOK } from '../engine/post';
 
 type E = (id: string, file: string, start: number, end: number, extra?: Partial<TimelineEntry>) => TimelineEntry;
 
-const REF: Record<string, number> = { boot: 2.7, stack: 2.6, rhythm: 3.6, kaleido: 3.1, record: 1.65, droste: 3.2, glitch: 1.65, crash: 8.1, invader: 3.05, stage: 4.0 };
+const REF: Record<string, number> = { boot: 2.7, stack: 2.6, rhythm: 3.6, kaleido: 3.1, record: 1.65, droste: 3.2, glitch: 1.65, crash: 8.1, invader: 3.05, stage: 4.0, typewarp: 4.0 };
 
 // 这些场景是在旧默认后期（泛光、颗粒、暗角、色差、高光压缩）下调的，示例里照旧打开，画面和当初一样
 export function demos(E0: E, au: AudioData): TimelineEntry[] | null {

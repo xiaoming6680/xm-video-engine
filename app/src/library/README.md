@@ -37,12 +37,13 @@
 | `engine/sprite.ts` | 透明 PNG 精灵：弯曲网格（头发布料随风）、分层调色、2D 视差相机 | Still_Shining |
 | `engine/paper.ts` | 3D 纸片剧场；**拼贴**（文件末尾）：2D 拼贴舞台、12 fps 拍落、剪刀边、撕边、木偶、真半调；照片预处理 `tools/assets/collage.py` | `?paper` · Clarity，拼贴照 mg-styles-15 |
 | `kit/tactile.ts` | 实物感：影子随抬起高度变、拍落余振；贴纸白边用 `props.py --edge` | `?tactile` · mg-styles-15 |
-| `kit/tegaki.ts` | 手绘线：压力笔刷、噪声场沸腾、摄影表、填色错位、纸齿、特写补偿、smear 帧、手写字 | `?brush` · Still_Shining，笔刷照 mg-styles-15 |
+| `kit/tegaki.ts` | 手绘线：压力笔刷、噪声场沸腾、摄影表、填色错位、纸齿、特写补偿、smear 帧、手写字；速写墨线 `sketchLine`（逐张抖、笔压、转角出头、第二笔） | `?brush`、`?ref=typewarp` · Still_Shining，笔刷照 mg-styles-15，速写线 If The Sun Burns Out |
 | `kit/anim.ts` | 关键帧（`kf`），弹簧、挤压、错峰、对数缩放、镜头领先 `lead` | `?mg` · 2026-10，MG 动作照 mg-styles-15 |
 | `kit/morph.ts` | 形状变形（`Morph`、经圆的 `SlotMorph`）、路径动画、一笔画 `OneLine` | `?mg` · 2026-10 |
 | `kit/svg.ts` | SVG 素材 → 形状（path、圆弧、transform、填色描边） | 2026-10 |
 | `kit/rig.ts` | 象形小人：奔跑 / 走路循环、二十来个关键姿势、按年龄的身体比例 | 2026-10 |
 | `kit/textfx.ts` | 环形字、路径字、贴纸字、叠层挤出字、裂纹字；综艺花字（五层字、单字弹出、砸入余振、爆炸框） | `?caption` · 复刻配方，花字照 mg-styles-15 |
+| `kit/typewarp.ts` | 海报字的变形和进出：像素拉丝 `streak`、长弯 + 宽带错位 `bendTear`（字仍读得出；细碎撕裂是反例）、进场 `arrive`（横拉竖压 → 停留放大 → 两张拉丝飞行 → 压扁落位） | `?ref=typewarp` · If The Sun Burns Out |
 | `kit/termhud.ts` | 叙事 HUD（号牌、旁白框、监控面板、终端弹窗）；FUI（三档亮度、乱码解码、辉光黑晕字、重击关快门） | `?caption` · 复刻配方，FUI 照 mg-styles-15 |
 | `kit/typo.ts` | 巨型窄体字当窗口、逐词砸字、中文行 | Still_Shining |
 | `kit/lyrics-kit.ts` | 英文逐词 + 中文逐字的歌词排版、鼓点推镜、星芒 | Still_Shining |

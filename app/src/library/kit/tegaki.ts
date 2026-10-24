@@ -21,6 +21,8 @@
 //   inkLoop(c, shape, { seed: 20 + d.v, w: 5 });                         // 描线
 //   paperTooth(c, sheet, d.v);                                           // 最后盖纸齿（sheet = await loadPaper()）
 //
+// 速写墨线 sketchLine（If The Sun Burns Out 页面上的涂鸦：计分划、手画奖杯、准星、枪的轮廓）：比 inkStroke 轻，
+// 逐张重新抖、每段一个笔压（0.7–1.6 倍）、长边转角出头、淡淡的第二笔，可按比例画出来；抖幅 jit 可调（细小的记号 1 px）。
 // 旧的 penLine / penCircle / speedLines / penSun……是 Still_Shining v2.0 的样子（等宽线、逐点抖），保留原样；
 // 新片用 ink* 系列。TG_FPS 从 8 改成 12：8 张 / 秒在 60 fps 下每张画交替停 7、8 帧，动作会顿。
 // 单线字体按需加载：场景 init() 里 `await loadStrokeFonts()`（../engine/stroke）。
@@ -28,7 +30,7 @@ import { W, H, SCALE } from '../../engine/gl';
 import type { Line } from '../../engine/lyrics';
 import { textPathCommands } from '../../engine/type';
 import { strokeText, drawStrokeText, writtenLength, type StrokeText } from '../engine/stroke';
-import { clamp, hash, mod, noise1, noise2, shutterT, smoothstep, stepT } from '../../engine/util';
+import { clamp, hash, lerp, mod, noise1, noise2, shutterT, smoothstep, stepT } from '../../engine/util';
 import { lineProgress } from './lyrics-kit';
 
 /**
@@ -99,6 +101,35 @@ export function penLine(c: CanvasRenderingContext2D, pts: [number, number][], st
   });
   c.stroke();
   c.restore();
+}
+
+/**
+ * A quick ink line, lighter than inkStroke: the points jittered afresh every drawing (±jit / 2 px: the line boils, as
+ * drawn on twos), drawn on to fraction k of its length; each segment has its own pen pressure (0.7–1.6 × w), segments
+ * longer than 24 px overshoot their corner by 4 px, and a faint second pass (30 %, offset 1.2, −0.8) runs beside it, a
+ * pen going over it twice. step: the drawing number (tgStep, or typewarp's drawing); the stroke colour is c's own.
+ */
+export function sketchLine(c: CanvasRenderingContext2D, pts: readonly (readonly [number, number])[], step: number,
+  o: { k?: number; seed?: number; closed?: boolean; w?: number; jit?: number } = {}) {
+  const k = o.k ?? 1, seed = o.seed ?? 0, w = o.w ?? 2.2, jit = o.jit ?? 2.4;
+  if (k <= 0 || pts.length < 2) return;
+  const P = o.closed ? [...pts, pts[0]!] : pts;
+  const J = P.map(([x, y], i): [number, number] => [x + (hash(i, step, seed) - 0.5) * jit, y + (hash(i, step, seed + 1) - 0.5) * jit]);
+  const L = J.slice(1).map((q, i) => Math.hypot(q[0] - J[i]![0], q[1] - J[i]![1])), total = L.reduce((a, b) => a + b, 0);
+  for (const [a, dx, dy] of [[1, 0, 0], [0.3, 1.2, -0.8]] as const) {
+    c.save(); c.globalAlpha *= a; c.lineJoin = 'round'; c.lineCap = 'round';
+    let left = total * Math.min(1, k);
+    for (let i = 1; i < J.length && left > 0; i++) {
+      const l = L[i - 1]!, f = Math.min(1, left / Math.max(l, 1e-6));
+      const ux = (J[i]![0] - J[i - 1]![0]) / Math.max(l, 1e-6), uy = (J[i]![1] - J[i - 1]![1]) / Math.max(l, 1e-6);
+      const over = f >= 1 && l > 24 ? 4 : 0;
+      c.lineWidth = w * (0.7 + 0.9 * hash(i, seed, 5));
+      c.beginPath(); c.moveTo(J[i - 1]![0] + dx, J[i - 1]![1] + dy);
+      c.lineTo(lerp(J[i - 1]![0], J[i]![0], f) + ux * over + dx, lerp(J[i - 1]![1], J[i]![1], f) + uy * over + dy); c.stroke();
+      left -= l;
+    }
+    c.restore();
+  }
 }
 
 /** A hand-drawn circle (slightly open, overshooting its start, wobbly). */
