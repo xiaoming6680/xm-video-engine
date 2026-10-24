@@ -12,17 +12,38 @@
 //     [--song <dir>] another song's files (<dir>/song.wav, audio.json …; passed on to render.ts too)
 //                             [render.ts video options, passed on: --samples auto --max-samples 108 --shutter 0.2 --crf 16 …]
 // Times are song seconds (src/config.ts VIDEO_START / VIDEO_END). ffmpeg: see scripts/common.ts.
+// Stopping it (Ctrl+C, SIGTERM, or the shells it was started from going away — a task stop that ends only the outer
+// shell) takes every chunk's render.ts down with its ffmpeg, browser and vite; --no-watch: keep running when the shell
+// goes. Leftovers of older runs (out/<name>.seg held): bun scripts/kill-render.ts.
 import path from 'node:path';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { config, findFfmpeg } from './common';
+import { config, findFfmpeg, killTree, ancestors, watchParents } from './common';
 
 const argv = process.argv.slice(2);
 const OWN = ['workers', 'chunk', 'from', 'to', 'out', 'fps', 'quiet', 'ding', 'fadein', 'gain', 'af'];
+// the chunks' render.ts and the final ffmpeg: their trees die with this process however it ends
+const kids = new Set<number>();
+let cleaned = false;
+function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  for (const pid of kids) killTree(pid);
+}
+function abort(why: string, code = 1) {
+  console.error(`\n${why}: stopping the export (rerun the same command to resume)`);
+  cleanup();
+  process.exit(code);
+}
+process.on('exit', cleanup);
+process.on('SIGINT', () => abort('SIGINT', 130));
+process.on('SIGTERM', () => abort('SIGTERM', 143));
+if (!argv.includes('--no-watch')) watchParents(ancestors(), () => abort('the shell that started this export is gone'));
 const opt = (k: string, d?: string) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
 const pass: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   const k = argv[i]!.replace(/^--/, '');
   if (OWN.includes(k)) { i++; continue; }
+  if (k === 'no-watch') continue; // (the chunks always watch this process)
   pass.push(argv[i]!);
 }
 const APP = path.resolve(import.meta.dir, '..'), ROOT = path.resolve(APP, '..');
@@ -50,9 +71,12 @@ console.log(`${chunks.length} chunks of ${step} frames, ${todo.length} to render
 const t0 = performance.now();
 let next = 0, finished = chunks.length - todo.length, failed = 0;
 async function run(c: (typeof chunks)[number], attempt = 1): Promise<void> {
-  const args = ['bun', 'scripts/render.ts', 'video', '--from', String(c.a / FPS), '--to', String(c.b / FPS), '--fps', String(FPS), '--noaudio', '--out', c.file, ...pass];
+  // (this bun itself, not 'bun': no cmd.exe shim in between; --parent: the chunk stops when this process is gone)
+  const args = [process.execPath, 'scripts/render.ts', 'video', '--from', String(c.a / FPS), '--to', String(c.b / FPS), '--fps', String(FPS), '--noaudio', '--out', c.file, '--parent', String(process.pid), ...pass];
   const p = Bun.spawn(args, { cwd: APP, stdout: 'pipe', stderr: 'pipe', env: process.env });
+  kids.add(p.pid);
   const [so, se] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  kids.delete(p.pid);
   const frames = /\((\d+) frames in/.exec(so)?.[1];
   if (p.exitCode === 0 && frames && +frames === c.b - c.a && existsSync(c.file)) {
     writeFileSync(`${c.file}.done`, so.split('\n').filter((l) => /sub-frames|wrote/.test(l)).join('\n'));
@@ -92,5 +116,7 @@ if (ding) {
 graph += `;${mixIn}amix=inputs=${nMix}:normalize=0,atrim=0:${dur.toFixed(4)}[a]`;
 const ff = Bun.spawn([findFfmpeg(), '-y', '-loglevel', 'error', ...ffIn, '-filter_complex', graph,
   '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart', out], { stdout: 'inherit', stderr: 'inherit' });
+kids.add(ff.pid);
 await ff.exited;
+kids.delete(ff.pid);
 console.log(ff.exitCode === 0 ? `wrote ${out} (${((performance.now() - t0) / 60000).toFixed(1)} min)` : `concat failed (exit ${ff.exitCode})`);

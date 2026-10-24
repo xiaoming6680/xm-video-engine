@@ -25,10 +25,13 @@
 // Times are SONG seconds; the video is the song from VIDEO_START to VIDEO_END (src/config.ts).
 // ffmpeg: $FFMPEG, PATH, or the known installs (scripts/common.ts). Output is BT.709 and tagged as such.
 // (a server for --url must serve THIS app; without --url a private no-HMR server is started for the run).
+// The run takes what it started (vite, ffmpeg, the browser) down with it, also on Ctrl+C / SIGTERM, and stops when the
+// shells it was started from are gone (a task stop that ends only the outer shell); --parent <pid> watches that process
+// instead (render-par passes its own), --no-watch keeps running. Leftovers of older runs: bun scripts/kill-render.ts.
 import { chromium, type Page } from 'playwright-core';
 import { mkdirSync as mkdirSync0, existsSync } from 'node:fs';
 import path from 'node:path';
-import { config, findFfmpeg } from './common';
+import { config, findFfmpeg, killTree, ancestors, watchParents } from './common';
 // (Bun on Windows throws EEXIST for an existing directory with a non-ASCII path, even with recursive)
 const mkdirSync = (p: string, o: { recursive: boolean }) => { if (!existsSync(p)) mkdirSync0(p, o); };
 
@@ -54,6 +57,26 @@ const SONG = opt('song')?.replace(/\\/g, '/').replace(/\/$/, '');
 const SONG_AUDIO = SONG ? path.join(ROOT, SONG, 'song.wav') : path.join(ROOT, config.AUDIO);
 if (SONG && !existsSync(SONG_AUDIO)) throw new Error(`--song ${SONG}: ${SONG_AUDIO} not found`);
 
+// the processes this run started (vite, ffmpeg): killed with their children however the run ends; the browser is
+// Playwright's (closed on exit), and an abort takes this process's whole tree down with it
+const kids = new Set<number>();
+let cleaned = false;
+function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  for (const pid of kids) killTree(pid);
+}
+function abort(why: string, code = 1) {
+  console.error(`\n${why}: stopping the render`);
+  cleanup();
+  if (process.platform === 'win32') killTree(process.pid); // (the browser too; ends this process)
+  process.exit(code);
+}
+process.on('exit', cleanup);
+process.on('SIGINT', () => abort('SIGINT', 130));
+process.on('SIGTERM', () => abort('SIGTERM', 143));
+if (!flag('no-watch')) watchParents(opt('parent') ? [+opt('parent')!] : ancestors(), () => abort('the process that started this render is gone'));
+
 async function reachable(url: string) {
   try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return r.ok; } catch { return false; }
 }
@@ -69,7 +92,10 @@ async function ensureServer(): Promise<{ url: string; stop: () => void }> {
   for (let i = 0; i < 40 && !port; i++) { const p = 5300 + Math.floor(Math.random() * 500); if (!(await reachable(`http://localhost:${p}`))) port = p; }
   if (!port) throw new Error('no free port in 5300-5799 for the render server');
   // no live reload: a file saved mid-render must not reload the page
-  const proc = Bun.spawn(['bunx', 'vite', '--port', String(port), '--strictPort'], { cwd: APP, stdout: 'ignore', stderr: 'ignore', env: { ...process.env, PDOOM_NO_HMR: '1' } });
+  // (bun x, not bunx: started straight from this bun, no cmd.exe shim in between; --strictPort marks a render server,
+  // kill-render.ts goes by it)
+  const proc = Bun.spawn([process.execPath, 'x', 'vite', '--port', String(port), '--strictPort'], { cwd: APP, stdout: 'ignore', stderr: 'ignore', env: { ...process.env, PDOOM_NO_HMR: '1' } });
+  kids.add(proc.pid);
   const u = `http://localhost:${port}`;
   for (let i = 0; i < 100 && !(await reachable(u)); i++) {
     if (proc.exitCode !== null) throw new Error(`the render server (vite on ${port}) exited before answering: port taken? rerun`);
@@ -78,7 +104,7 @@ async function ensureServer(): Promise<{ url: string; stop: () => void }> {
   if (proc.exitCode !== null) throw new Error(`the render server (vite on ${port}) is not ours: it exited, another server answers there; rerun`);
   // (bunx starts vite as a child: kill the whole tree, or every run leaves a vite behind — 118 had piled up and starved
   // the renders of memory)
-  const stop = () => { if (process.platform === 'win32') Bun.spawnSync(['taskkill', '/PID', String(proc.pid), '/T', '/F']); proc.kill(); };
+  const stop = () => { killTree(proc.pid); proc.kill(); kids.delete(proc.pid); };
   return { url: u, stop };
 }
 
@@ -165,6 +191,7 @@ async function video(page: Page, from: number, to: number, fps: number, out: str
   if (!flag('noaudio')) args.push(...(af ? ['-af', af] : []), '-c:a', 'aac', '-b:a', '320k', '-shortest');
   args.push('-movflags', '+faststart', out);
   const ff = Bun.spawn(args, { stdin: 'pipe', stdout: 'inherit', stderr: 'inherit' });
+  kids.add(ff.pid);
   let frames = 0;
   const total = Math.round(to * fps) - Math.round(from * fps);
   const t0 = performance.now();
@@ -190,6 +217,7 @@ async function video(page: Page, from: number, to: number, fps: number, out: str
   while (frames < total) await Bun.sleep(20);
   ff.stdin.end();
   await ff.exited;
+  kids.delete(ff.pid);
   server.stop();
   console.log(`\nwrote ${out} (${frames} frames in ${((performance.now() - t0) / 1000).toFixed(1)}s)`);
   console.log(`sub-frames per frame (count:frames): ${hist(used)}`);
