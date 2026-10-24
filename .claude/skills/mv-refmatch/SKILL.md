@@ -19,7 +19,7 @@ description: 对照复刻参考视频里的镜头 / 效果，做到单帧像、�
 2. **量规格**，写进 findings.md：
    - 颜色 `refmatch.py sample 参考.mp4 --t t --pt x,y --box x0,y0,x1,y1`；主体占比、字高、位置、每个动作的时间点
    - 切点表 `python tools/qa/seams.py 参考.mp4 --from a --to b -o out/refmatch/<名>_seams`：在哪切、怎么接（锚点、运动、亮度、色调）
-   - 运动量 `refmatch.py motion 参考.mp4 --ref-start 0 --ours 参考.mp4 --from a --to b -o …`：原片每小节的每帧变化量
+   - 运动量 `refmatch.py motion 参考.mp4 --ref-start 0 --ours 参考.mp4 --from a --to b -o …`：原片每小节的镜内变化（均值、去掉切点；原片一拍二时加 `--step 2`）
 3. **原声**：`python tools/grid_song.py 参考.mp4 --bpm <作者公布的速度> -o refs/<名>`（refs/ 不进仓库），渲染加 `--song refs/<名>`，预览 `?song=refs/<名>`
 4. **先出连续粗分镜**：整段镜头排进时间线（`timeline.ts`），转场、切点、主体大小、运动是真的，细节占位；配原声渲出来 `bun scripts/render.ts animatic --song refs/<名> …`，自己连着看一遍 + 跑 seams，**停下给用户看**，结构定了再精做
 5. **精做，三样对照**（渲整段 `render-par.ts … --song refs/<名>`）：
@@ -27,7 +27,7 @@ description: 对照复刻参考视频里的镜头 / 效果，做到单帧像、�
    - 连贯：`seams.py 我们.mp4 --ref 参考.mp4 --ref-start a`（两边切点逐个比，列出参考有我们没有的）；`refmatch.py sheet --cuts --from … --to …`（切点前后四帧）
    - 运动量：`refmatch.py motion`（每段 引擎/原片 在 0.7–1.4）；`refmatch.py strip --t …`（连续 8 帧：原片每帧在长、在变的，我们也要变）
 6. **改 → 再渲 → 再对照**，直到三样都过
-7. **最后带音乐、原速、从头到尾连着看**：`refmatch.py video 参考.mp4 --ref-start a --ours 我们.mp4 --loops 1 --slow 0` 左右对照一遍，再单独看自己的一遍，然后给用户
+7. **最后带音乐、原速、从头到尾连着看**：`refmatch.py video 参考.mp4 --ref-start a --ours 我们.mp4 --loops 1 --slow 0` 左右对照一遍，再单独看自己的一遍；独立评审的简报写上参考片，让评委逐段对照原片（文字运动、转场、画面密度），过了再给用户
 
 ## 常见差距
 
