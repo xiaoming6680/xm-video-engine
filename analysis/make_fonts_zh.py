@@ -7,9 +7,14 @@
 # Only U+2000 and up are kept (CJK, full-width punctuation, “ ” ‘ ’ … —): Latin, digits and spaces come from
 # the video's own families (Archivo, IBM Plex Mono, Cormorant), which the Chinese faces stand behind.
 # Rerun after changing any Chinese text:
-#   uv run --no-project --with fonttools python make_fonts_zh.py [--gb2312] [NotoSansSC[wght].ttf] [NotoSerifSC[wght].ttf]
+#   uv run --no-project --with fonttools python make_fonts_zh.py [--gb2312] [--extra <font>[#n]]… [NotoSansSC[wght].ttf] [NotoSerifSC[wght].ttf]
 # (defaults: the copies Windows 11 ships in C:\Windows\Fonts; Google Fonts has the same files)
 # --gb2312: also keep every GB2312 character (larger files, for work in progress: new text needs no rerun).
+# A project's own Chinese display faces (a brush script for the translation, a face the user picked from
+# tools/font_sheet.py — 马善政, PingFang, 华文行楷…): every .ttf / .otf / .ttc in app/public/fonts/src/zh/, and each
+# --extra file (#n: the face in a .ttc), is cut to the same characters plus printable ASCII and saved as
+# app/public/fonts/<file name>.ttf (a variable face keeps its axes); register it in src/config.ts EXTRA_FONTS.
+# Commercial faces only ever go into that project, never into the base engine (OFL only here).
 import io
 import json
 import re
@@ -23,7 +28,16 @@ from fontTools.varLib import instancer
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "app" / "public" / "fonts"
 GB2312 = "--gb2312" in sys.argv
-ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+ARGS, EXTRA = [], []
+argv = sys.argv[1:]
+for i, a in enumerate(argv):
+    if a == "--extra" and i + 1 < len(argv):
+        EXTRA.append(argv[i + 1])
+    elif not a.startswith("--") and not (i and argv[i - 1] == "--extra"):
+        ARGS.append(a)
+ZH_SRC = ROOT / "app" / "public" / "fonts" / "src" / "zh"
+if ZH_SRC.is_dir():
+    EXTRA += [str(p) for p in sorted(ZH_SRC.iterdir()) if p.suffix.lower() in (".ttf", ".otf", ".ttc")]
 SRC = {
     "NotoSansSC": Path(ARGS[0]) if len(ARGS) > 0 else Path(r"C:\Windows\Fonts\NotoSansSC-VF.ttf"),
     "NotoSerifSC": Path(ARGS[1]) if len(ARGS) > 1 else Path(r"C:\Windows\Fonts\NotoSerifSC-VF.ttf"),
@@ -83,3 +97,18 @@ for name, src in SRC.items():
         out = OUT / f"{name}-{wt}.ttf"
         inst.save(out)
         print(out.name, out.stat().st_size // 1024, "KB")
+
+for spec in EXTRA:
+    path, _, n = spec.partition("#")
+    src = Path(path)
+    f = TTFont(src, fontNumber=int(n or 0))
+    opts = Options()
+    opts.name_IDs = ["*"]
+    opts.name_languages = ["*"]
+    opts.layout_features = ["*"]
+    sub = Subsetter(opts)
+    sub.populate(unicodes=[ord(c) for c in chars] + list(range(0x20, 0x7F)))
+    sub.subset(f)
+    out = OUT / f"{src.stem}{'-' + n if n else ''}.ttf"
+    f.save(out)
+    print(out.name, out.stat().st_size // 1024, "KB")
