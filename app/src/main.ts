@@ -8,6 +8,10 @@ import { VIDEO_START, AUDIO, W, H } from './config';
 const params = new URLSearchParams(location.search);
 const EXPORT = params.has('export');
 const ONLY = params.get('only'); // comma-separated scene ids to load (faster stills)
+// ?span=a,b (render.ts video --from a --to b): load only the scenes that overlap song seconds a..b. Every scene's
+// canvases and render targets are made in its init, so a chunk of a parallel export would otherwise hold the whole
+// film's (at 4K ~1 GB of VRAM per browser, and the VRAM caps how many browsers run at once)
+const SPAN = params.get('span')?.split(',').map(Number);
 const FROM = params.get('t') ? parseFloat(params.get('t')!) : VIDEO_START;
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
@@ -28,7 +32,9 @@ async function boot() {
   // ?glyphcheck (render.ts glyphs): note every character drawn in a font that lacks it, from the scenes' init on
   if (params.has('glyphcheck')) installGlyphCheck();
   const onlySet = ONLY ? new Set(ONLY.split(',')) : null;
-  await engine.init(onlySet ? (e) => onlySet.has(e.id) : undefined);
+  // (a 0.5 s margin: a frame's sub-frames reach half a shutter around it)
+  const inSpan = SPAN?.length === 2 ? (e: { start: number; end: number }) => e.end > SPAN[0]! - 0.5 && e.start < SPAN[1]! + 0.5 : null;
+  await engine.init(onlySet || inSpan ? (e) => (!onlySet || onlySet.has(e.id)) && (!inSpan || inSpan(e)) : undefined);
   TIMELINE = engine.timeline;
   if (EXPORT) setupExport();
   else setupPlayer();

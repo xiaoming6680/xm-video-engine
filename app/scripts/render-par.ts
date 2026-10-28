@@ -2,10 +2,13 @@
 // Parallel export: the song in chunks, each rendered by its own headless browser (render.ts video --noaudio),
 // several at once, then a lossless concat with the audio muxed once. With ANGLE on Vulkan (render.ts --angle) the GPU
 // is the limit: on an RTX 5070 Ti laptop at 1080p, 1 browser keeps it ~40% busy, 3–4 ~80% (≈3x the frames per
-// second), 6–8 only add ~5% more for ~1.5 GB of VRAM each; hence 4 workers at 1080p, 2 at --scale 2 (4K, where 5 once
-// filled the VRAM and hung). Chunks are frame-aligned and taken from a queue in order; a finished chunk is kept, so an
-// interrupted export resumes where it stopped.
+// second), 6–8 only add ~5% more for ~1.5 GB of VRAM each; hence 4 workers at 1080p. At --scale 2 (4K) each browser
+// is bound by Canvas2D rasterization in its GPU process and 2 give as many frames per second as 3 (~2.3 GB each):
+// 2 workers. The VRAM guard below holds back a browser that would not fit. Each chunk loads only its own scenes
+// (render.ts → main.ts ?span). Chunks are frame-aligned and taken from a queue in order; a finished chunk is kept, so
+// an interrupted export resumes where it stopped.
 //   bun scripts/render-par.ts [--workers 4] [--chunk 8] [--from <VIDEO_START>] [--to <VIDEO_END>] [--out <config OUT>]
+//     [--vram-reserve 1.5]  GB of VRAM kept free (NVIDIA): a chunk waits for room before its browser starts
 //     [--quiet 105]  the song is silent before this song time (a lead-in before the music, e.g. the hook from 101.5)
 //     [--fadein 2.2] the song fades in over this long from --quiet (so the music does not come in abruptly)
 //     [--ding 102.4] a soft two-note chime at this song time (the message arriving; generated, not a sampled sound)
@@ -21,7 +24,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { config, findFfmpeg, killTree, ancestors, watchParents } from './common';
 
 const argv = process.argv.slice(2);
-const OWN = ['workers', 'chunk', 'from', 'to', 'out', 'fps', 'quiet', 'ding', 'fadein', 'gain', 'af'];
+const OWN = ['workers', 'chunk', 'from', 'to', 'out', 'fps', 'quiet', 'ding', 'fadein', 'gain', 'af', 'vram-reserve'];
 // the chunks' render.ts and the final ffmpeg: their trees die with this process however it ends
 const kids = new Set<number>();
 let cleaned = false;
@@ -69,15 +72,54 @@ const done = (c: (typeof chunks)[number]) => existsSync(`${c.file}.done`) && exi
 const todo = chunks.filter((c) => !done(c));
 console.log(`${chunks.length} chunks of ${step} frames, ${todo.length} to render, ${workers} at a time -> ${segDir}`);
 
+// VRAM guard (NVIDIA, nvidia-smi): a browser starts only when the VRAM has room for it plus --vram-reserve GB, and
+// when the VRAM runs out anyway the newest chunk is stopped and queued again. A full VRAM froze the whole desktop
+// (Windows reset the display driver) with 3 browsers at 4K. Per browser: ~1.5 GB at 1080p, ~2.5 GB at 4K, refined from
+// what the run uses.
+function vram(): { used: number; total: number } | null {
+  try {
+    const r = Bun.spawnSync(['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,noheader,nounits']);
+    const [u, t] = r.stdout.toString().split('\n')[0]!.split(',').map(Number);
+    return r.exitCode === 0 && u! >= 0 && t! > 0 ? { used: u!, total: t! } : null;
+  } catch { return null; }
+}
+const RESERVE = +opt('vram-reserve', '1.5')! * 1024;
+const VRAM0 = vram();
+let perBrowser = (+opt('scale', '1')! >= 2 ? 2.5 : 1.5) * 1024;
+const live: { pid: number; at: number; evicted?: boolean }[] = [];
+if (VRAM0) setInterval(() => {
+  const v = vram();
+  if (!v || !live.length) return;
+  perBrowser = Math.max(perBrowser, (v.used - VRAM0.used) / live.length);
+  if (v.total - v.used < 512 && live.length > 1) {
+    const newest = live.reduce((a, b) => (b.at > a.at ? b : a));
+    if (!newest.evicted && newest.pid) { newest.evicted = true; console.log(`VRAM nearly full (${v.used}/${v.total} MB): stopping the newest chunk, it runs again later`); killTree(newest.pid); }
+  }
+}, 2000).unref();
+/** Waits until one more browser fits in the VRAM and books its place (check and booking in one step: the workers start together). */
+async function slot() {
+  for (;;) {
+    const v = VRAM0 && live.length ? vram() : null;
+    // (a browser that just started has not allocated yet: count every running one at its full share)
+    const fits = !v || Math.max(v.used, VRAM0!.used + live.length * perBrowser) + perBrowser + RESERVE <= v.total;
+    if (fits) { const me: (typeof live)[number] = { pid: 0, at: performance.now() }; live.push(me); return me; }
+    await Bun.sleep(2000);
+  }
+}
+
 const t0 = performance.now();
 let next = 0, finished = chunks.length - todo.length, failed = 0;
 async function run(c: (typeof chunks)[number], attempt = 1): Promise<void> {
+  const me = await slot();
   // (this bun itself, not 'bun': no cmd.exe shim in between; --parent: the chunk stops when this process is gone)
   const args = [process.execPath, 'scripts/render.ts', 'video', '--from', String(c.a / FPS), '--to', String(c.b / FPS), '--fps', String(FPS), '--noaudio', '--out', c.file, '--parent', String(process.pid), ...pass];
   const p = Bun.spawn(args, { cwd: APP, stdout: 'pipe', stderr: 'pipe', env: process.env });
   kids.add(p.pid);
+  me.pid = p.pid;
   const [so, se] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  live.splice(live.indexOf(me), 1);
   kids.delete(p.pid);
+  if (me.evicted) return run(c, attempt);
   const frames = /\((\d+) frames in/.exec(so)?.[1];
   if (p.exitCode === 0 && frames && +frames === c.b - c.a && existsSync(c.file)) {
     writeFileSync(`${c.file}.done`, so.split('\n').filter((l) => /sub-frames|wrote/.test(l)).join('\n'));
