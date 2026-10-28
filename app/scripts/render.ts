@@ -22,6 +22,7 @@
 //   --scale N (all modes): render at N× the W x H layout of src/config.ts (--scale 2 = 4K for 1920x1080).
 //   --query k=v (all modes): extra URL parameters for the app (e.g. style=wire for look tests).
 //   --channel msedge (all modes): drive installed Edge (default here: msedge; there is no Chrome on this machine).
+//   --angle vulkan (all modes): the browser's GL backend (default: vulkan on Windows, metal on macOS; see ANGLE below).
 // Times are SONG seconds; the video is the song from VIDEO_START to VIDEO_END (src/config.ts).
 // ffmpeg: $FFMPEG, PATH, or the known installs (scripts/common.ts). Output is BT.709 and tagged as such.
 // (a server for --url must serve THIS app; without --url a private no-HMR server is started for the run).
@@ -108,8 +109,13 @@ async function ensureServer(): Promise<{ url: string; stop: () => void }> {
   return { url: u, stop };
 }
 
-// ANGLE backend: Metal on macOS, Direct3D 11 on Windows, the browser's default elsewhere
-const ANGLE = process.platform === 'darwin' ? ['--use-angle=metal'] : process.platform === 'win32' ? ['--use-angle=d3d11'] : [];
+// ANGLE backend (--angle <name>): Metal on macOS, Vulkan on Windows, the browser's default elsewhere.
+// Windows: Direct3D 11 copies every Canvas2D layer into WebGL through the GPU process (~20 ms per 1920x1080 upload,
+// one CPU core busy, the GPU mostly idle); Vulkan shares it: a 12-sub-frame frame of light painting 980 -> 50 ms.
+// The two differ by a few levels in raymarched clouds and text edges: patch a film rendered before with its backend
+// (--angle d3d11) so the spliced chunks match.
+const ANGLE_NAME = opt('angle', process.platform === 'darwin' ? 'metal' : process.platform === 'win32' ? 'vulkan' : '');
+const ANGLE = ANGLE_NAME ? [`--use-angle=${ANGLE_NAME}`] : [];
 
 async function openPage(url: string) {
   const browser = await chromium.launch({
@@ -127,6 +133,13 @@ async function openPage(url: string) {
   await page.waitForFunction(() => (window as any).__pdoom?.ready || (window as any).__pdoom?.error, null, { timeout: 120000 });
   const err = await page.evaluate(() => (window as any).__pdoom.error);
   if (err) throw new Error(`app failed to boot:\n${err}\n${logs.join('\n')}`);
+  // a backend the machine can't run falls back to software GL (SwiftShader): ~100x slower, stop instead
+  const gpu: string = await page.evaluate(() => {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const ext = gl?.getExtension('WEBGL_debug_renderer_info');
+    return gl ? String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : 'no WebGL2';
+  });
+  if (/SwiftShader|llvmpipe|Basic Render|no WebGL2/i.test(gpu) && !flag('software')) throw new Error(`--angle ${ANGLE_NAME || '(default)'} runs on ${gpu}, not the GPU: try --angle d3d11 (or --software to render anyway)`);
   const size: [number, number] = await page.evaluate(() => [(window as any).__pdoom.width ?? 0, (window as any).__pdoom.height ?? 0]);
   if (size[0] !== OW || size[1] !== OH) throw new Error(`app renders ${size[0]}x${size[1]}, expected ${OW}x${OH} (--scale ${SCALE})`);
   const sceneErrors: string[] = await page.evaluate(() => (window as any).__pdoom.errors);

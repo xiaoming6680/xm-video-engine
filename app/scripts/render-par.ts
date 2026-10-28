@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 // Parallel export: the song in chunks, each rendered by its own headless browser (render.ts video --noaudio),
-// several at once, then a lossless concat with the audio muxed once. On Windows (ANGLE on Direct3D 11) each
-// browser's GPU process is bound by one CPU core while the GPU idles, so an export scales with the number of
-// browsers. Chunks are frame-aligned and taken from a queue in order; a finished chunk is kept, so an interrupted
-// export resumes where it stopped.
-//   bun scripts/render-par.ts [--workers 6] [--chunk 8] [--from <VIDEO_START>] [--to <VIDEO_END>] [--out <config OUT>]
+// several at once, then a lossless concat with the audio muxed once. With ANGLE on Vulkan (render.ts --angle) the GPU
+// is the limit: on an RTX 5070 Ti laptop at 1080p, 1 browser keeps it ~40% busy, 3–4 ~80% (≈3x the frames per
+// second), 6–8 only add ~5% more for ~1.5 GB of VRAM each; hence 4 workers at 1080p, 2 at --scale 2 (4K, where 5 once
+// filled the VRAM and hung). Chunks are frame-aligned and taken from a queue in order; a finished chunk is kept, so an
+// interrupted export resumes where it stopped.
+//   bun scripts/render-par.ts [--workers 4] [--chunk 8] [--from <VIDEO_START>] [--to <VIDEO_END>] [--out <config OUT>]
 //     [--quiet 105]  the song is silent before this song time (a lead-in before the music, e.g. the hook from 101.5)
 //     [--fadein 2.2] the song fades in over this long from --quiet (so the music does not come in abruptly)
 //     [--ding 102.4] a soft two-note chime at this song time (the message arriving; generated, not a sampled sound)
@@ -53,7 +54,7 @@ const SONG = opt('song');
 const DUR: number = JSON.parse(readFileSync(path.join(ROOT, SONG ?? 'data', 'audio.json'), 'utf-8')).duration;
 const from = +opt('from', String(config.VIDEO_START))!, to = +opt('to', String(Math.min(DUR, config.VIDEO_END ?? Infinity)))!;
 const out = path.resolve(opt('out', path.join(ROOT, config.OUT))!);
-const workers = +opt('workers', '6')!, chunk = +opt('chunk', '8')!;
+const workers = +opt('workers', +opt('scale', '1')! >= 2 ? '2' : '4')!, chunk = +opt('chunk', '8')!;
 const segDir = path.join(path.dirname(out), `${path.basename(out, '.mp4')}.seg`);
 if (!existsSync(segDir)) mkdirSync(segDir, { recursive: true });
 
