@@ -26,3 +26,10 @@ tools/audio/.venv/
 tools/audio/samples/
 # Blender 渲的序列帧（tools/blender/render.py）
 assets/blender/
+
+# 版本工具的代理和代码快照（film/film.json 留着）
+film/media/
+film/code/
+film/restore/
+film/.cache/
+film/*.mp4

@@ -25,8 +25,8 @@ for _n in ("DiffQuantizer", "UniformQuantizer", "restore_quantized_state"):
 sys.modules["diffq"] = _dq
 from audio_separator.separator import Separator
 
-root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHARED = os.path.join(root, "analysis", "models")  # (in the base engine itself: its own folder)
+root = os.getcwd()  # 项目根目录：脚本可以留在引擎里原地跑
+SHARED = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "analysis", "models")  # (in the base engine itself: its own folder)
 _local = os.path.join(root, "analysis", "models")
 models = os.environ.get("XM_MODELS") or (_local if os.path.isdir(_local) and os.listdir(_local) else SHARED)
 os.makedirs(models, exist_ok=True)

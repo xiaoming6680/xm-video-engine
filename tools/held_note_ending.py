@@ -27,7 +27,7 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import butter, sosfilt, fftconvolve
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path.cwd()  # 项目根目录：脚本可以留在引擎里原地跑
 SR = 44100
 N = 8192                          # freeze resolution (0.19 s)
 HOP = N // 4

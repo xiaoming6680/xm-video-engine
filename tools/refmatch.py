@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "qa"))
 from ffmpeg_path import FFMPEG  # noqa: E402
 from frames import decode, duration, frame_diff  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path.cwd()  # 项目根目录：脚本可以留在引擎里原地跑
 APP = ROOT / "app"
 
 

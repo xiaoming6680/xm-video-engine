@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path.cwd()  # 项目根目录：脚本可以留在引擎里原地跑
 A = json.loads((ROOT / "data" / "audio.json").read_text(encoding="utf-8"))
 beats = np.array(A["beats"])
 P = float(np.median(np.diff(beats)))

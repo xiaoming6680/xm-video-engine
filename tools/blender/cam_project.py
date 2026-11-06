@@ -18,6 +18,7 @@
 序列帧铺满画面（fit 'cover'、宽高比相同）时直接乘 W / res[0]，否则按 plate 的铺法换算。
 cam.json 的格式：render.py write_camjson（四元数 q = [x, y, z, w]，和 kit/plate.ts 读的一样；fov 是竖直视角，度）。
 """
+import os
 import argparse
 import json
 import math
@@ -71,7 +72,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--shot', help='镜头名：读 <root>/assets/blender/<镜头>/cam.json')
     ap.add_argument('--cam', help='cam.json 路径（代替 --shot）')
-    ap.add_argument('--root', default=str(ROOT), help='项目根目录（默认这个文件往上三级）')
+    ap.add_argument('--root', default=os.getcwd(), help='项目根目录（默认当前目录）')
     ap.add_argument('--point', action='append', help='名字=x,y,z（Blender 世界坐标），可重复；不给就用 cam.json 每帧的 points')
     ap.add_argument('--radius', action='append', help='球半径（米）：名字=r 或 r（全部点）')
     ap.add_argument('-o', '--out', help='输出 JSON（默认 <root>/app/public/gen/screen_points.json），已有就合并')

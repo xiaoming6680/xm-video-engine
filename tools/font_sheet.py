@@ -23,7 +23,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-FONT_DIRS = [ROOT / "app" / "public" / "fonts", Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts",
+FONT_DIRS = [Path.cwd() / "app" / "public" / "fonts", ROOT / "app" / "public" / "fonts", Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts",
              Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Windows" / "Fonts"]
 EXTS = (".ttf", ".otf", ".ttc")
 LABEL_FONTS = ["msyh.ttc", "NotoSansSC-500.ttf", "segoeui.ttf", "arial.ttf"]
@@ -144,7 +144,7 @@ def glowed(im, amount, color, size):
 
 
 def lyric_text(n, zh):
-    data = json.loads((ROOT / "data" / "lyrics.json").read_text(encoding="utf-8"))
+    data = json.loads((Path.cwd() / "data" / "lyrics.json").read_text(encoding="utf-8"))
     lines = data["lines"] if isinstance(data, dict) else data
     ln = lines[n]
     t = ln.get("zh") if zh else ln.get("text")

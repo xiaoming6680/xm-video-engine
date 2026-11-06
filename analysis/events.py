@@ -26,7 +26,7 @@ import numpy as np
 import soundfile as sf
 from scipy.ndimage import uniform_filter1d
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path.cwd()  # 项目根目录：脚本可以留在引擎里原地跑
 DATA = ROOT / "data"
 SR = 44100
 HOP = 128

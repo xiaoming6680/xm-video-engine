@@ -60,7 +60,7 @@ def ink(font, text):
 
 def credit():
     """app/src/config.ts 的 CREDIT（角落署名）：封面默认的 BY 行。没填就是空，不印。"""
-    p = Path(__file__).resolve().parent.parent / "app" / "src" / "config.ts"
+    p = Path.cwd() / "app" / "src" / "config.ts"
     m = re.search(r"export const CREDIT = '([^']*)'", p.read_text(encoding="utf-8")) if p.exists() else None
     return f"BY {m.group(1)}" if m and m.group(1) else ""
 

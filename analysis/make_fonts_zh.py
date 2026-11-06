@@ -25,7 +25,7 @@ from fontTools.subset import Options, Subsetter
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path.cwd()  # 项目根目录：脚本可以留在引擎里原地跑
 OUT = ROOT / "app" / "public" / "fonts"
 GB2312 = "--gb2312" in sys.argv
 ARGS, EXTRA = [], []

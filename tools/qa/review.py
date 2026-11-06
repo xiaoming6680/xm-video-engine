@@ -1,4 +1,4 @@
-"""看片辅助（docs/质量验收.md 第三节「看片」），从 Still_Shining 的 qa8.py 整理而来。
+"""看片辅助（docs/检查和评审.md「看片」），从 Still_Shining 的 qa8.py 整理而来。
 
   python tools/qa/review.py out/film.mp4 [--start 0]
       -> out/qa/<名>_sheet.jpg   联系表：每 0.5 秒一帧，180 px 宽（手机大小下读不读得清，一眼就知道）
@@ -56,7 +56,10 @@ def strip(src: Path, t0: float, t1: float, n: int) -> None:
 
 def sections(start: float, dur: float) -> list[tuple[float, str]]:
     """Section starts in video time, from data/audio.json (song time)."""
-    a = json.loads((ROOT / "data" / "audio.json").read_text(encoding="utf-8"))
+    p = ROOT / "data" / "audio.json"
+    if not p.exists():
+        return []
+    a = json.loads(p.read_text(encoding="utf-8"))
     out = []
     for s in a.get("sections", []):
         t = s["start"] - start
@@ -105,7 +108,8 @@ def main(src: Path, start: float) -> None:
     _, buf = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 85])
     buf.tofile(str(out / f"{name}_sheet.jpg"))
 
-    A = json.loads((ROOT / "data" / "audio.json").read_text(encoding="utf-8"))
+    # 没有分析数据也能出联系表和运动量，只是少了 RMS 曲线和段落线
+    A = json.loads((ROOT / "data" / "audio.json").read_text(encoding="utf-8")) if (ROOT / "data" / "audio.json").exists() else {}
     rms = np.array((A.get("features") or {}).get("rms") or A.get("rms") or [0.0])
     secs = sections(start, dur)
     k = max(1, int(fps / 4))

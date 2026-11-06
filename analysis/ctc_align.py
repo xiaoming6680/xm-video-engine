@@ -26,7 +26,7 @@ import torchaudio
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path.cwd()  # 项目根目录：脚本可以留在引擎里原地跑
 DATA = ROOT / "data"
 WORK = ROOT / "analysis" / "work"
 WORK.mkdir(parents=True, exist_ok=True)

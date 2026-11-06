@@ -24,7 +24,7 @@ import soundfile as sf
 from scipy.ndimage import maximum_filter1d, median_filter, uniform_filter1d
 from scipy.signal import butter, find_peaks, sosfiltfilt
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path.cwd()  # 项目根目录：脚本可以留在引擎里原地跑
 AUDIO = ROOT / "audio"
 DATA = ROOT / "data"
 SR = 44100
@@ -43,6 +43,14 @@ SECTION_BARS = [
 # then stays within ±4 % of it.
 BPM_HINT = None
 BPM_RANGE = (60.0, 200.0)
+
+# 不想改这个文件时，写项目的 data/song_config.json：{"bpm_hint": 134, "section_bars": [["intro", null, 8], ["drop", 8, null]]}
+_cfg = DATA / "song_config.json"
+if _cfg.exists():
+    _c = json.loads(_cfg.read_text(encoding="utf-8"))
+    BPM_HINT = _c.get("bpm_hint", BPM_HINT)
+    if _c.get("section_bars"):
+        SECTION_BARS = [tuple(x) for x in _c["section_bars"]]
 
 
 # ---------------------------------------------------------------------------
