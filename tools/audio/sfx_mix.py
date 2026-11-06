@@ -1,4 +1,4 @@
-"""给成片或歌叠一层音效：合成音效（mgaudio.sfx）或现成的 wav，按画面时刻对齐，音乐轻微闪避，母带到 −14 LUFS。
+"""给成片或歌叠一层音效：合成音效（mgaudio.sfx）或现成的 wav，按画面时刻对齐，音乐轻微闪避，母带保持原曲响度。
 
   python tools/audio/sfx_mix.py <输入.mp4 | 输入.wav> -o <输出.mp4 | 输出.wav>
       --at 名字@秒[@增益dB] …    时间是成片秒（片头从 0 算）。名字 = 合成音效（pop、hit、whoosh(0.8, kind='sci')……，
@@ -11,7 +11,9 @@
       [--duck 3]           每个音效的同步点附近把音乐压低几 dB（0 = 不压）
       [--sfx-gain 0]       所有音效整体加减（dB）；单个音效用 @增益
       [--bed -20]          音乐先归到这个响度再叠合成音效（mgaudio 的约定：增益 0 时音效比音乐床高约 2 dB）
-      [--lufs -14 | off] [--tp -1]   母带目标；off = 不做响度归一，只乘 --gain（和旧 mix_sfx.py 一样，纯音量）
+      [--lufs keep | -9 | off] [--tp -1]   母带目标：keep（默认）= 叠完归回原曲自己的响度（没有原曲按 −9），只限真峰值；
+                           数字 = 归一到这个响度；off = 不做响度归一，只乘 --gain（和旧 mix_sfx.py 一样，纯音量）
+                           （不压到 −14：B 站、抖音不统一响度，压低了会比别的视频小）
       [--gain 0]           叠完后整体增益（只在 --lufs off 时起作用）
       [--stems 目录] [--png 频谱.png] [--report 清单.json] [--seed 0] [--list]
 
@@ -97,7 +99,7 @@ def main():
     ap.add_argument("--duck", type=float, default=3.0)
     ap.add_argument("--sfx-gain", type=float, default=0.0)
     ap.add_argument("--bed", type=float, default=-20.0)
-    ap.add_argument("--lufs", default="-14", help="目标积分响度，或 off")
+    ap.add_argument("--lufs", default="keep", help="keep（原曲响度）、目标积分响度，或 off")
     ap.add_argument("--tp", type=float, default=-1.0)
     ap.add_argument("--gain", type=float, default=0.0)
     ap.add_argument("--stems")
@@ -160,7 +162,9 @@ def main():
         tp_try = a.tp if direct else a.tp - 0.5   # AAC / MP3 编码常把真峰值抬高 0.5–1.5 dB，先留点余量省一轮
         for attempt in range(4):
             if normalize:
-                y, _ = A.master_light(pre, float(a.lufs), tp_try)
+                keep = a.lufs.lower() == "keep"
+                target = (minfo["music_lufs"] if music is not None else -9.0) if keep else float(a.lufs)
+                y, _ = A.master_light(pre, target, tp_try)
             else:
                 y = (pre * core.amp(a.gain)).astype(np.float32)
             A.write_wav(wav, y)

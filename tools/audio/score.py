@@ -1,4 +1,4 @@
-"""给不用歌的片子（科普、配音片）生成一段配乐：mgaudio 的配方（recipes）按时长和卡点编好、加音效、母带到 −14 LUFS。
+"""给不用歌的片子（科普、配音片）生成一段配乐：mgaudio 的配方（recipes）按时长和卡点编好、加音效、母带到 −9 LUFS（和 B 站、抖音上的视频一样响）。
 
   python tools/audio/score.py -o out/score.wav --recipe explainer --duration 30
       [--bpm 112] [--key D] [--mode major] [--prog "Imaj7 V vi7 IVmaj7"]
@@ -9,7 +9,7 @@
       [--at 名字@秒[@增益] …]                  在这些时刻放音效（同 sfx_mix.py，起音提前 --lead-frames 帧）
       [--set flavor=piano --set lead=False …]  配方的额外参数（--list 看每个配方有什么）
       [--music-level -20] [--duck 3]           音乐床响度、音效处音乐闪避（配方自带）
-      [--lufs -14] [--tp -1] [--png 频谱.png] [--stems 目录] [--seed 0]
+      [--lufs -9] [--tp -1] [--png 频谱.png] [--stems 目录] [--seed 0]
       [--synth-fallback]                       没装采样时，用到采样的配方改用合成音色（默认报错，提示跑 get_samples.py）
   python tools/audio/score.py --list           列出配方、默认速度 / 调 / 和弦和额外参数
 
@@ -100,7 +100,7 @@ def main():
     ap.add_argument("--set", action="append", default=[])
     ap.add_argument("--music-level", type=float, default=-20.0)
     ap.add_argument("--duck", type=float, default=3.0)
-    ap.add_argument("--lufs", type=float, default=-14.0)
+    ap.add_argument("--lufs", type=float, default=-9.0)
     ap.add_argument("--tp", type=float, default=-1.0)
     ap.add_argument("--png")
     ap.add_argument("--stems")

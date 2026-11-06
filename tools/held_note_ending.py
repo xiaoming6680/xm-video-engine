@@ -17,7 +17,7 @@ split's bass + other (python analysis/separate.py demucs) feed the harmonic ring
   * the backing stops at --cut (a 130 ms fade); only bass + other ring on in the hall for a few seconds;
   * the last 0.6 s fade to nothing (match the picture's fade).
 Times are song seconds; the output is float32 stereo 44.1 kHz from 0 to --end. Not mastered: set the release gain in
-the export (render-par's master chain or config.AUDIO_FILTER) and check -14 LUFS with tools/qa/check_video.py.
+the export (render-par's master chain or config.AUDIO_FILTER) and check the true peak with tools/qa/check_video.py (loudness is kept as mastered, not pulled down to -14).
 Listen to it: the level curve and the spectrogram cannot tell whether the held vowel sounds right.
 """
 import argparse

@@ -48,7 +48,10 @@ def decode_audio(path: str, start: float, dur: float, sr: int = 48000) -> np.nda
     """[start, start + dur) 的音频，(n, 2) float32；没有音轨返回 None。"""
     if not has_audio(path):
         return None
-    args = [FFMPEG, "-v", "error", "-ss", f"{max(0.0, start):.4f}", "-t", f"{dur:.4f}", "-i", path, "-vn", "-ac", "2", "-ar", str(sr),
+    # 起点为 0 时不传 -ss：MP4 里的 AAC 带 1024 采样的起始延迟，靠 edit list 抵消；输入端 -ss 0 会让 ffmpeg 再扣一次，
+    # 解出来的声音比播放器听到的晚开始约 23 ms（check_video 因此误报音画偏移 −22 ms）
+    seek = ["-ss", f"{start:.4f}"] if start > 0 else []
+    args = [FFMPEG, "-v", "error", *seek, "-t", f"{dur:.4f}", "-i", path, "-vn", "-ac", "2", "-ar", str(sr),
             "-f", "f32le", "-"]
     b = subprocess.run(args, capture_output=True, check=True).stdout
     return np.frombuffer(b, np.float32).reshape(-1, 2)

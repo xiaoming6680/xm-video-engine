@@ -1,19 +1,19 @@
-"""成片技术检查：响度 / 真峰值、空帧、音画偏移、色彩标签；闪光（3×3 分区）只在 --flash 时查、只供参考。
-docs/质量验收.md 第三节「技术」。
+"""成片技术检查：真峰值（防爆音）、空帧、闪光（3×3 分区）、音画偏移、色彩标签。
+docs/质量验收.md 第三节「技术」。响度不设目标、不判对错（B 站、抖音不统一响度，压到 −14 LUFS 会比别的视频小），只列出来参考。
 
 用法：
-  python tools/qa/check_video.py out/final.mp4 [--song audio/song.wav --start 0] [--douyin out/wip/douyin_test.mp4] [--hits 12.4,31.0] [--flash]
+  python tools/qa/check_video.py out/final.mp4 [--song audio/song.wav --start 0] [--douyin out/wip/douyin_test.mp4] [--hits 12.4,31.0] [--no-flash]
 
-- --flash 闪光（只供参考：不标不过、不影响退出码，不必为它改画面）：画面分 3×3 区，每区按线性相对亮度 Y 找相反方向的
-  成对变化（一次变化 ≥ 0.1，暗的一端 < 0.8，约等于 200 nit 显示器上 20 cd/m²、暗端 < 160 cd/m²），列出任一区任意 1 秒内
-  超过 3 次闪烁（7 次变化）的时刻。整帧平均亮度只看得见大面积同时闪；局部大闪（半边画面一亮一暗）要分区才看得出
+- 闪光（默认就查，--no-flash 跳过）：画面分 3×3 区，每区按线性相对亮度 Y 找相反方向的成对变化（一次变化 ≥ 0.1，
+  暗的一端 < 0.8，约等于 200 nit 显示器上 20 cd/m²、暗端 < 160 cd/m²），任一区任意 1 秒内超过 3 次闪烁（7 次变化）就不过。
+  整帧平均亮度只看得见大面积同时闪；局部大闪（半边画面一亮一暗）要分区才看得出
 - 音画偏移：成片音轨和原曲（--song，从 --start 起）做互相关，差几个采样。AAC 编码有 1024–2048 采样的起始延迟，
   靠 MP4 的 edit list 抵消；混流丢了它，声音会整体晚 20–40 ms。默认用项目的 audio/song.wav 和 src/config.ts 的 VIDEO_START
 - --douyin 另外按抖音常见码率（1080p 约 6 Mbps）重编码一份，用来肉眼看暗部色带和糊块
 - --hits（成片秒）：重击（drop、撞击、高潮那一下）在手机外放上是不是全片最响的几下之一。手机喇叭只放得出约 350 Hz–9 kHz，
   能量全在低频的重击在手机上会输给一个密集的高音；按这个频段每 200 ms 一窗量响度，报每个重击在全片的排名百分位。
   只是提示，不影响退出码（MV 的混音是歌本身的；自己加音效的片子按它调）。做法参考 mg-styles-15 的 hitmax.py（MIT）
-色彩标签、响度和真峰值、音画偏移、空帧任何一项不过时退出码为 1（闪光、重击只是提示）。
+色彩标签、真峰值、音画偏移、空帧、闪光任何一项不过时退出码为 1（重击只是提示）。
 """
 import argparse
 import json
@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ffmpeg_path import FFMPEG, FFPROBE  # noqa: E402
 
-TARGET_LUFS, LUFS_TOL, MAX_TP = -14.0, 1.5, -1.0
+MAX_TP = -1.0                         # 真峰值上限（dBTP）：再高 AAC 编码后会爆音
 MAX_FLASH_PER_S = 3
 FLASH_DY, FLASH_DARK = 0.1, 0.8      # 一次变化的亮度差、暗端上限（线性相对亮度）
 MAX_AV_SAMPLES = 48                   # 音画偏移容差：1 ms（48 kHz）
@@ -204,7 +204,7 @@ def main() -> None:
     ap.add_argument("--start", type=float, help="成片 0 秒对应原曲的秒数；默认 src/config.ts 的 VIDEO_START")
     ap.add_argument("--douyin", help="按抖音常见码率重编码一份到这个路径")
     ap.add_argument("--hits", help="重击时刻（成片秒，逗号分隔）：查手机频段上它们是不是全片最响的几下")
-    ap.add_argument("--flash", action="store_true", help="也查闪光（3×3 分区）：只供参考，不影响退出码")
+    ap.add_argument("--no-flash", action="store_true", help="不查闪光（3×3 分区）")
     a = ap.parse_args()
     bad = False
     root = Path.cwd()
@@ -218,15 +218,19 @@ def main() -> None:
 
     try:
         i, tp = loudness(a.video)
-        ok = abs(i - TARGET_LUFS) <= LUFS_TOL and tp <= MAX_TP
+        ok = tp <= MAX_TP
         bad |= not ok
-        print(f"[{'OK' if ok else '!!'}] 响度 {i:.1f} LUFS（目标 {TARGET_LUFS}±{LUFS_TOL}），真峰值 {tp:.1f} dBTP（≤ {MAX_TP}）")
+        print(f"[{'OK' if ok else '!!'}] 真峰值 {tp:.1f} dBTP（≤ {MAX_TP}，防爆音）；响度 {i:.1f} LUFS（只作参考，不压低）")
     except AttributeError:
-        print("[--] 没有音轨，跳过响度")
+        print("[--] 没有音轨，跳过真峰值")
 
     song = a.song or (str(root / "audio/song.wav") if (root / "audio/song.wav").exists() else None)
     if song:
         start = a.start if a.start is not None else config_video_start(root)
+        if a.start is None:                                  # 导出按整帧对齐起点（render-par：round(VIDEO_START × fps) / fps），基准也对齐
+            fr = json.loads(run([FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "json", a.video]))["streams"][0]["r_frame_rate"].split("/")
+            fps_v = float(fr[0]) / float(fr[1])
+            start = round(start * fps_v) / fps_v
         off = av_offset(a.video, song, start)
         st = stream_starts(a.video)
         if off is None:
@@ -243,10 +247,11 @@ def main() -> None:
     bad |= bool(segs)
     print(f"[{'OK' if not segs else '!!'}] 空帧 / 黑场：{len(segs)} 段" + "".join(f"\n      {s:.2f}–{e:.2f}s" for s, e in segs))
 
-    if a.flash:
+    if not a.no_flash:
         ys, fps = region_luma(a.video)
         fl = flash_report(ys, fps)
-        print(f"[--] 闪光（只供参考，不必为它改画面）：3×3 分区，每区每秒超过 {MAX_FLASH_PER_S} 次的" + ("：无" if not fl else "") +
+        bad |= bool(fl)
+        print(f"[{'OK' if not fl else '!!'}] 闪光：3×3 分区，每区每秒 ≤ {MAX_FLASH_PER_S} 次" +
               "".join(f"\n      {name}：" + "，".join(f"{t:.1f}s 起 {n:g} 次/秒" for t, n in hits) for name, hits in fl.items()))
 
     if a.hits:

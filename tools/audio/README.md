@@ -1,10 +1,10 @@
 # 配乐与音效合成（mgaudio）
 
 代码合成的音效和配乐：`mgaudio/` 是 mg-styles-15 的 `lib/audio`（48 kHz 立体声，numpy + numba + pedalboard），
-含 70 多种音效（whoosh、hit、pop、riser、UI、液体、纸、故障、8-bit……）、15 个曲风配方、混音和 −14 LUFS 母带。
+含 70 多种音效（whoosh、hit、pop、riser、UI、液体、纸、故障、8-bit……）、15 个曲风配方、混音和母带（默认保持原曲响度，配乐 −9 LUFS）。
 外面两个入口接到引擎上：
 
-- `sfx_mix.py`：给成片或歌叠一层音效（合成的或现成的 wav），按画面时刻对齐，音乐轻微闪避，母带到 −14 LUFS / −1 dBTP
+- `sfx_mix.py`：给成片或歌叠一层音效（合成的或现成的 wav），按画面时刻对齐，音乐轻微闪避，母带保持原曲响度、真峰值 −1 dBTP
 - `score.py`：给不用歌的片子（科普、配音片）按配方和卡点生成一段配乐 wav
 
 ## 安装（基础引擎里一次，各项目共用）
@@ -49,7 +49,7 @@ python tools/audio/score.py --list          # 配方和参数；python tools/aud
 - **同步点**：一次性的声音（hit、pop、click）对瞬态，whoosh 对掠过最响处，riser / reverse_cymbal 对末尾（那一下），
   transition / text_hit 对那一下——只写画面上那一下的时刻；默认起音再早 1 帧（`--fps 60 --lead-frames 1`）
 - **响度约定**：音乐先归到 −20 LUFS（`--bed`），合成音效增益 0 时比音乐床高约 2 dB；`-6` 偏轻，`+2` 是重击。
-  文件音效保持相对原曲的音量。最后整体归到 −14 LUFS、真峰值 ≤ −1 dBTP（AAC 编码后再量一次，超了自动压低重来）
+  文件音效保持相对原曲的音量。最后整体归回原曲响度（`--lufs keep`，没有原曲按 −9 LUFS）、真峰值 ≤ −1 dBTP（AAC 编码后再量一次，超了自动压低重来）
 - **视频**：视频流原样复制，BT.709 标签不丢；音轨 AAC 320k 48 kHz。做完照常跑 `tools/qa/check_video.py`
 - 旧的 `mix_sfx.py`（world.excute(me)）做法 = `--lufs off --duck 0 --lead-frames 0 [--gain -6]`
 - 完整 API（配方参数、每种音效的参数、Mix / Track、QC）看 `mgaudio/` 各模块的文档字符串；
