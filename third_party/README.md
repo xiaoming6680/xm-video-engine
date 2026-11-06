@@ -2,7 +2,7 @@
 
 代码不在仓库里：要用时在仓库根目录跑 `python tools/fetch_refs.py`（全部）或 `python tools/fetch_refs.py <目录>`（一个），按下表的固定提交拉到 `third_party/<目录>/`（不进 git）。加 `--strip-media` 删掉图片、视频、音频，只留代码和文档。全部是 MIT 许可，各目录保留原 `LICENSE`。
 
-**这些不是引擎的一部分**，是按需移植的参考：做到需要的画风时，读对应目录，把要用的部分改写成引擎的写法（`render(f)` 纯函数、线性 HDR、`Layer2D` / `FSPass`），放进项目或引擎的 `app/src/engine/`，并在成片 `CREDITS` 里注明来源。移植方法和各模块的适用场景见 `../docs/模块目录.md`。
+**这些不是引擎的一部分**，是按需移植的参考：做到需要的画风时，读对应目录，把要用的部分改写成引擎的写法（`render(f)` 纯函数、线性 HDR、`Layer2D` / `FSPass`），放进项目或引擎的 `app/src/engine/`，并在成片 `CREDITS` 里注明来源。移植方法和各模块的适用场景见 `../docs/README.md`。
 
 | 目录 | 来源（提交） | 许可 | 拿来做什么 |
 |---|---|---|---|

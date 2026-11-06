@@ -1,11 +1,11 @@
 # 效果库
 
-以前几支片子做过的特效、场景级部件、示例场景和 shaders 库。**新项目不复制这个目录**：用户点名要某种效果、或者某个镜头确实需要时再来拿。
+以前几支片子做过的特效、场景级部件、示例场景和 shaders 库。新项目默认不复制，想用就拿，也可以当参考代码读。
 这一页是目录：每个模块一行，**用法、参数、注意事项在各文件开头的注释里**，挑中了再去读那个文件的开头。
 
 - **怎么用**：把文件按原路径复制进项目的 `app/src/library/`（连同它 import 的库内文件，见文件开头），import 不用改：`import { … } from '../library/kit/clouds'`。示例场景复制到项目的 `app/src/library/scenes/`，时间线按名字载入
 - **看效果**：基础引擎里开网址参数（入口 `demos.ts`），见下表「示例」列
-- **以前的结果**：纸片剧场（`engine/paper.ts` 的 3D 纸片）在 Clarity 被说有劣质感，图片拆层做视差（`engine/sprite.ts`）在 Still_Shining、乐观自由被说像 PPT，代码搭的人物（MMD、自建模型）在乐观自由被说别扭。用之前先想清楚能不能做好。纸片要有实物感：影子随抬起高度变、拍落余振（`kit/tactile.ts`），整张拼贴用 `engine/paper.ts` 末尾的拼贴一节（`?paper`），镜头不在纸层之间穿行
+- **以前的结果**（只代表当时那几支片）：纸片剧场（`engine/paper.ts` 的 3D 纸片）在 Clarity 被说有劣质感，图片拆层做视差（`engine/sprite.ts`）在 Still_Shining、乐观自由被说像 PPT，代码搭的人物（MMD、自建模型）在乐观自由被说别扭。用之前先想清楚能不能做好。纸片要有实物感：影子随抬起高度变、拍落余振（`kit/tactile.ts`），整张拼贴用 `engine/paper.ts` 末尾的拼贴一节（`?paper`），镜头不在纸层之间穿行
 - 示例场景是写来验证模块、看接线的，不是画面标准；`ref_*` 十段是照参考片做的练习，判断不如原片
 - 单线书写字体（`engine/stroke.ts`）用前在场景 `init()` 里 `await loadStrokeFonts()`
 - 动了 `kit/sfx*.ts`、`kit/edt.ts` 或 `vendor/shaders` 要跑 `cd app && bun scripts/sfx-test.ts`

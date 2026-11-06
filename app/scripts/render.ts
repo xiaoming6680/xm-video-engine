@@ -7,7 +7,7 @@
 //            --samples N averages N sub-frames per frame over shutter×(1/fps): motion blur + temporal AA;
 //            --samples auto picks the count per frame (4, 12, 36, 108 or 324, see Engine.render)
 //   beatcheck: bun scripts/render.ts beatcheck [--out ../out/check/beatcheck.mp4]   (the song over the analysis: bars,
-//            beats, sections, sound events, lyric lines by number; docs/新项目流程.md step 1. 30 fps, fast encode)
+//            beats, sections, sound events, lyric lines by number; docs/音乐分析.md. 30 fps, fast encode)
 //   animatic:  bun scripts/render.ts animatic [--from] [--to] [--out ../out/animatic/animatic.mp4]   (the timeline with a
 //            slate on every frame: bar "06/63", shot id, section, beats; step 3. 30 fps, 1 sample, fast encode)
 //   info:    bun scripts/render.ts info   (the timeline and every lyric line: index, times, length — never the text)

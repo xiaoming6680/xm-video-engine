@@ -5,7 +5,7 @@ plus a SECTION_BARS draft for analysis/analyze.py with every boundary snapped to
 
 Model: SongFormer (ASLP-lab, CC BY 4.0) on MuQ + MusicFM features, run in its own environment
 (SHARED/.venv): this script re-launches itself there. A draft, not the answer: listen, then fix it in SECTION_BARS
-and lock it with the beat-check video (docs/新项目流程.md step 1). On five finished songs it found 10/11, 8/8,
+and lock it with the beat-check video (docs/音乐分析.md). On five finished songs it found 10/11, 8/8,
 10/13 and 4/7 of the hand-placed boundaries within ±3 s (base engine docs/模型选型.md).
 
 Bars come from data/audio.json's downbeats (bar k starts at downbeats[k], same as analyze.py's bar_t), so run

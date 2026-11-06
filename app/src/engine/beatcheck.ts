@@ -1,4 +1,4 @@
-// Beat-check film (docs/新项目流程.md step 1): the song over a black frame that shows what the analysis thinks the
+// Beat-check film (docs/音乐分析.md): the song over a black frame that shows what the analysis thinks the
 // music is doing, so the user can confirm the bars, the sections and the drops by ear before anything is designed.
 //   bun scripts/render.ts beatcheck        (or the preview at /?beatcheck)
 // Shows: the bar number and the four beats of the bar; the section strip of the whole song with the playhead; a

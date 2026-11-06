@@ -62,7 +62,7 @@ export interface PostParams {
    *  white from ~1x to 6x), 0 = each channel on its own (pdoom's, PDOOM_LOOK: saturated highlights drift toward
    *  magenta / yellow), in between = a mix. */
   shoulderHue: number;
-  // ---- retro / signal looks (all off by default; see docs/模块目录.md) ----
+  // ---- retro / signal looks (all off by default; see docs/复刻配方.md) ----
   /** CRT tube 0..1: curved glass, scanlines, RGB grille, flicker, a rounded black bezel. The HUD is on the glass too. */
   crt: number;
   /** CRT barrel curvature (0 = flat glass), scaled by crt. */
