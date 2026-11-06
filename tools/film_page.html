@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>逐段挑选</title>
+<style>
+  :root { --bg:#111214; --panel:#1b1d21; --line:#30333a; --text:#ece9e2; --dim:#9a9ca3; --accent:#ff4f3e; --ok:#4cc38a; --warn:#e8b339; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 "Microsoft YaHei UI","PingFang SC",system-ui,sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:5; }
+  header b { font-size:16px; }
+  button { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; }
+  button:hover { border-color:#5a5e68; }
+  button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.ok.on { background:var(--ok); border-color:var(--ok); color:#06130d; }
+  #save { margin-left:auto; color:var(--dim); font-size:13px; }
+  #save.err { color:var(--warn); }
+  main { display:grid; grid-template-columns:230px minmax(0,1fr) 330px; gap:0; min-height:calc(100vh - 52px); }
+  nav { border-right:1px solid var(--line); overflow:auto; max-height:calc(100vh - 52px); }
+  nav div { padding:9px 14px; border-bottom:1px solid var(--line); cursor:pointer; }
+  nav div.cur { background:var(--panel); box-shadow:inset 3px 0 var(--accent); }
+  nav small { color:var(--dim); display:block; font-size:12.5px; }
+  nav .st { float:right; font-size:12.5px; color:var(--dim); }
+  nav .st.lock { color:var(--ok); } nav .st.pick { color:var(--text); } nav .st.none { color:var(--warn); }
+  #stage { padding:14px; min-width:0; }
+  #frame { position:relative; background:#000; aspect-ratio:16/9; border-radius:6px; overflow:hidden; }
+  #frame video { position:absolute; inset:0; width:100%; height:100%; visibility:hidden; }
+  #frame video.on { visibility:visible; }
+  #empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--dim); }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; }
+  #bar { width:100%; height:8px; background:var(--panel); border-radius:4px; cursor:pointer; position:relative; margin-top:10px; }
+  #prog { position:absolute; left:0; top:0; bottom:0; background:var(--accent); border-radius:4px; }
+  #bar i { position:absolute; top:-3px; width:3px; height:14px; background:var(--warn); }
+  #clock { font-variant-numeric:tabular-nums; color:var(--dim); margin-left:auto; }
+  aside { border-left:1px solid var(--line); padding:14px; overflow:auto; max-height:calc(100vh - 52px); }
+  aside h3 { margin:14px 0 6px; font-size:14px; color:var(--dim); font-weight:500; }
+  aside h3:first-child { margin-top:0; }
+  textarea { width:100%; min-height:72px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; resize:vertical; }
+  .mark { display:flex; gap:6px; align-items:flex-start; margin-bottom:6px; }
+  .mark a { color:var(--accent); cursor:pointer; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .mark input { flex:1; min-width:0; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 6px; font:inherit; }
+  .mark b { cursor:pointer; color:var(--dim); font-weight:400; }
+  .plan { background:var(--panel); border-radius:6px; padding:9px; white-space:pre-wrap; }
+  .hint { color:var(--dim); font-size:13px; }
+  #targets { padding:14px; display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:16px; }
+  .tcard { background:var(--panel); border-radius:8px; padding:10px; }
+  .tcard video { width:100%; border-radius:4px; background:#000; display:block; }
+  @media (max-width:1000px) { main { grid-template-columns:1fr; } nav, aside { border:0; max-height:none; } }
+</style>
+</head>
+<body>
+<header>
+  <b>逐段挑选</b>
+  <button id="tabSeg" class="on">逐段</button>
+  <button id="tabTgt">靶子</button>
+  <span class="hint" id="count"></span>
+  <span id="save">已保存</span>
+</header>
+<main id="segView">
+  <nav id="list"></nav>
+  <section id="stage">
+    <div id="frame"><div id="empty">这段还没有版本</div></div>
+    <div id="bar"><div id="prog"></div></div>
+    <div class="row">
+      <button id="play">播放</button>
+      <button id="markBtn">记下这一刻 (M)</button>
+      <button id="loop" class="on">循环这段</button>
+      <button id="next">连播到下一段</button>
+      <span id="clock"></span>
+    </div>
+    <div class="row" id="vers"></div>
+    <div class="hint" id="vnote" style="margin-top:6px"></div>
+    <div class="row hint">空格 播放 · 1–9 切版本（时间不变）· ← → 1 秒 · M 记瞬间</div>
+  </section>
+  <aside>
+    <h3>这段要哪版</h3>
+    <div class="row" id="picks" style="margin-top:0"></div>
+    <div class="row"><button id="lock" class="ok">认可，锁定</button></div>
+    <div class="hint" style="margin-top:6px">锁定后，之后的修改不会碰这段。没标的段落按「没认可」算。</div>
+    <div id="planBox" hidden>
+      <h3>AI 的理解和打算</h3>
+      <div class="plan" id="plan"></div>
+      <div class="row"><button id="planYes" class="ok">对</button><button id="planNo">不对</button></div>
+      <textarea id="planFix" placeholder="哪里不对，应该怎样" hidden style="margin-top:8px"></textarea>
+    </div>
+    <h3>记下的瞬间</h3>
+    <div id="marks"></div>
+    <h3>这段的意见</h3>
+    <textarea id="note" placeholder="好在哪，哪要改"></textarea>
+    <h3>整片的意见</h3>
+    <textarea id="overall"></textarea>
+  </aside>
+</main>
+<div id="tgtView" hidden>
+  <div class="hint" style="padding:14px 14px 0">开工前对齐方向：带声音看，告诉 AI 要不要这种感觉、要的是哪一点。</div>
+  <div id="targets"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const MUTE = new URLSearchParams(location.search).has("mute"); // ?mute：Agent 在面板里测试时不出声
+let S = null, seg = null, active = null, vids = {}, pending = { picks:{}, targets:{} }, saving = false, timer = null;
+const fmt = t => { t = Math.max(t, 0); return Math.floor(t / 60) + ":" + (t % 60).toFixed(2).padStart(5, "0"); };
+const media = f => "/m?f=" + encodeURIComponent(f);
+const pickOf = id => (S.picks[id] = S.picks[id] || {});
+const covers = s => S.versions.filter(v => v.t0 <= s.t0 + 0.01 && s.t1 - 0.01 <= v.t1);
+
+function queue(kind, id, patch) {
+  if (kind === "overall") pending.overall = patch;
+  else pending[kind][id] = Object.assign(pending[kind][id] || {}, patch);
+  $("save").textContent = "保存中……"; $("save").className = "";
+  clearTimeout(timer); timer = setTimeout(flush, 350);
+}
+async function flush() {
+  if (saving) { timer = setTimeout(flush, 500); return; }
+  const body = pending; pending = { picks:{}, targets:{} }; saving = true;
+  try {
+    const r = await fetch("/api/save", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(body) });
+    if (!r.ok) throw 0;
+    $("save").textContent = "已保存 " + new Date().toLocaleTimeString(); $("save").className = "";
+  } catch (e) {
+    // 服务断了也不丢：放回去，过几秒再试
+    for (const k of ["picks", "targets"]) for (const id in body[k]) pending[k][id] = Object.assign(body[k][id], pending[k][id] || {});
+    if ("overall" in body && !("overall" in pending)) pending.overall = body.overall;
+    $("save").textContent = "没保存上，正在重试（服务要开着）"; $("save").className = "err";
+    timer = setTimeout(flush, 3000);
+  } finally { saving = false; }
+}
+window.addEventListener("beforeunload", e => { if (Object.keys(pending.picks).length || Object.keys(pending.targets).length || "overall" in pending) { e.preventDefault(); e.returnValue = ""; } });
+
+function renderList() {
+  const box = $("list"); box.textContent = "";
+  let done = 0;
+  for (const s of S.segments) {
+    const p = S.picks[s.id] || {}, d = document.createElement("div");
+    d.className = s === seg ? "cur" : "";
+    const st = document.createElement("span");
+    st.className = "st " + (p.locked ? "lock" : p.pick === "none" ? "none" : p.pick ? "pick" : "");
+    st.textContent = p.locked ? "锁定 " + p.pick : p.pick === "none" ? "都不要" : p.pick || "没标";
+    if (p.pick) done++;
+    d.append(st, s.id + (s.name ? " " + s.name : ""));
+    const sm = document.createElement("small"); sm.textContent = fmt(s.t0) + "–" + fmt(s.t1); d.append(sm);
+    d.onclick = () => openSeg(s, false);
+    box.append(d);
+  }
+  $("count").textContent = `已选 ${done} / ${S.segments.length}`;
+}
+function songT() { const v = vids[active]; return v ? v.currentTime + v._offset : seg.t0; }
+function seek(t) { for (const k in vids) { try { vids[k].currentTime = Math.max(t - vids[k]._offset, 0); } catch (e) {} } drawClock(); }
+function setActive(id) {
+  const t = active && vids[active] ? songT() : seg.t0;
+  active = id;
+  for (const k in vids) { vids[k].classList.toggle("on", k === id); vids[k].muted = MUTE || k !== id; }
+  if (vids[id] && Math.abs(vids[id].currentTime + vids[id]._offset - t) > 0.05) { try { vids[id].currentTime = Math.max(t - vids[id]._offset, 0); } catch (e) {} }
+  [...$("vers").children].forEach(b => b.classList.toggle("on", b.dataset.v === id));
+  const v = S.versions.find(x => x.id === id);
+  $("vnote").textContent = v && v.note ? id + "：" + v.note : "";
+}
+function openSeg(s, keepPlaying) {
+  const was = keepPlaying && active && vids[active] && !vids[active].paused;
+  const prev = active;
+  seg = s;
+  const fr = $("frame"); [...fr.querySelectorAll("video")].forEach(v => { v.pause(); v.removeAttribute("src"); v.load(); v.remove(); });
+  vids = {};
+  const list = covers(s);
+  $("empty").hidden = list.length > 0;
+  const vb = $("vers"); vb.textContent = "";
+  list.forEach((v, i) => {
+    const el = document.createElement("video");
+    el.src = media(v.file); el.preload = "auto"; el.playsInline = true; el.muted = true; el._offset = v.offset;
+    el.addEventListener("loadedmetadata", () => { try { el.currentTime = Math.max(s.t0 - v.offset, 0); } catch (e) {} });
+    fr.append(el); vids[v.id] = el;
+    const b = document.createElement("button"); b.textContent = (i + 1) + " · " + v.id; b.dataset.v = v.id; b.onclick = () => setActive(v.id); vb.append(b);
+  });
+  const p = pickOf(s.id);
+  const prefer = keepPlaying && p.pick && vids[p.pick] ? p.pick : (prev && vids[prev] ? prev : (p.pick && vids[p.pick] ? p.pick : (list.length ? list[list.length - 1].id : null)));
+  active = null;
+  if (prefer) setActive(prefer);
+  renderList(); renderSide();
+  if (was) playAll();
+}
+function renderSide() {
+  const p = pickOf(seg.id), box = $("picks"); box.textContent = "";
+  const opts = covers(seg).map(v => v.id).concat("none");
+  for (const o of opts) {
+    const b = document.createElement("button"); b.textContent = o === "none" ? "都不要" : o;
+    b.className = p.pick === o ? "on" : "";
+    b.onclick = () => { p.pick = p.pick === o ? "" : o; if (!p.pick || o === "none") p.locked = false; queue("picks", seg.id, { pick:p.pick, locked:!!p.locked }); renderSide(); renderList(); };
+    box.append(b);
+  }
+  const lock = $("lock"); lock.classList.toggle("on", !!p.locked);
+  lock.textContent = p.locked ? "已锁定（点击解锁）" : "认可，锁定";
+  lock.onclick = () => { if (!p.pick || p.pick === "none") { $("save").textContent = "先选一版再锁定"; $("save").className = "err"; return; } p.locked = !p.locked; queue("picks", seg.id, { locked:p.locked }); renderSide(); renderList(); };
+  $("note").value = p.note || "";
+  $("planBox").hidden = !p.plan;
+  if (p.plan) {
+    $("plan").textContent = p.plan;
+    $("planYes").classList.toggle("on", p.plan_ok === "yes"); $("planNo").classList.toggle("on", p.plan_ok === "no");
+    $("planFix").hidden = p.plan_ok !== "no"; $("planFix").value = p.plan_fix || "";
+  }
+  renderMarks();
+}
+function renderMarks() {
+  const p = pickOf(seg.id), box = $("marks"); box.textContent = "";
+  (p.marks || []).forEach((m, i) => {
+    const row = document.createElement("div"); row.className = "mark";
+    const a = document.createElement("a"); a.textContent = m.v + " " + fmt(m.t); a.onclick = () => { if (vids[m.v]) setActive(m.v); seek(m.t); };
+    const inp = document.createElement("input"); inp.value = m.text || ""; inp.placeholder = "这一刻怎么样"; inp.oninput = () => { m.text = inp.value; queue("picks", seg.id, { marks:p.marks }); };
+    const x = document.createElement("b"); x.textContent = "×"; x.onclick = () => { p.marks.splice(i, 1); queue("picks", seg.id, { marks:p.marks }); renderMarks(); drawMarks(); };
+    row.append(a, inp, x); box.append(row);
+  });
+  if (!(p.marks || []).length) { const d = document.createElement("div"); d.className = "hint"; d.textContent = "喜欢或不喜欢的瞬间按 M 记下来"; box.append(d); }
+  drawMarks();
+}
+function drawMarks() {
+  const bar = $("bar"); [...bar.querySelectorAll("i")].forEach(x => x.remove());
+  for (const m of pickOf(seg.id).marks || []) { const i = document.createElement("i"); i.style.left = ((m.t - seg.t0) / (seg.t1 - seg.t0) * 100) + "%"; bar.append(i); }
+}
+function addMark() {
+  if (!active) return;
+  const p = pickOf(seg.id); p.marks = p.marks || [];
+  p.marks.push({ v:active, t:+songT().toFixed(2), text:"" });
+  p.marks.sort((a, b) => a.t - b.t);
+  queue("picks", seg.id, { marks:p.marks }); renderMarks();
+  const idx = p.marks.findIndex(m => !m.text); const inputs = $("marks").querySelectorAll("input"); if (inputs[idx]) inputs[idx].focus();
+}
+function playAll() { for (const k in vids) vids[k].play().catch(() => {}); $("play").textContent = "暂停"; }
+function pauseAll() { for (const k in vids) vids[k].pause(); $("play").textContent = "播放"; }
+function togglePlay() { if (active && vids[active] && !vids[active].paused) pauseAll(); else playAll(); }
+function drawClock() {
+  if (!seg) return;
+  const t = songT();
+  $("clock").textContent = fmt(t) + "　" + seg.id + " " + fmt(seg.t0) + "–" + fmt(seg.t1);
+  $("prog").style.width = Math.min(100, Math.max(0, (t - seg.t0) / (seg.t1 - seg.t0) * 100)) + "%";
+}
+let chain = false;
+function tick() {
+  if (seg && active && vids[active]) {
+    const v = vids[active], t = songT();
+    for (const k in vids) if (k !== active && !vids[k].seeking && !v.seeking && Math.abs(vids[k].currentTime + vids[k]._offset - t) > 0.12) { try { vids[k].currentTime = Math.max(t - vids[k]._offset, 0); } catch (e) {} }
+    if (t >= seg.t1 - 0.01 && !v.paused) {
+      const i = S.segments.indexOf(seg);
+      if (chain && i + 1 < S.segments.length) { openSeg(S.segments[i + 1], true); seek(S.segments[i + 1].t0); }
+      else if ($("loop").classList.contains("on")) seek(seg.t0);
+      else pauseAll();
+    }
+    drawClock();
+  }
+  requestAnimationFrame(tick);
+}
+function renderTargets() {
+  const box = $("targets"); box.textContent = "";
+  if (!S.targets.length) { const d = document.createElement("div"); d.className = "hint"; d.textContent = "还没有靶子。film.py target add 参考.mp4"; box.append(d); return; }
+  for (const t of S.targets) {
+    const c = document.createElement("div"); c.className = "tcard";
+    const v = document.createElement("video"); v.src = media(t.file); v.controls = true; v.preload = "metadata"; v.muted = MUTE;
+    const n = document.createElement("div"); n.className = "hint"; n.style.margin = "6px 0"; n.textContent = t.id + (t.note ? "：" + t.note : "");
+    const row = document.createElement("div"); row.className = "row";
+    const set = x => { t.verdict = t.verdict === x ? "" : x; queue("targets", t.id, { verdict:t.verdict }); y.classList.toggle("on", t.verdict === "yes"); no.classList.toggle("on", t.verdict === "no"); };
+    const y = document.createElement("button"); y.className = "ok" + (t.verdict === "yes" ? " on" : ""); y.textContent = "就是这种"; y.onclick = () => set("yes");
+    const no = document.createElement("button"); no.className = t.verdict === "no" ? "on" : ""; no.textContent = "不是"; no.onclick = () => set("no");
+    row.append(y, no);
+    const ta = document.createElement("textarea"); ta.style.marginTop = "8px"; ta.placeholder = "要的是哪一点，不要的是哪一点"; ta.value = t.user_note || ""; ta.oninput = () => { t.user_note = ta.value; queue("targets", t.id, { user_note:ta.value }); };
+    c.append(v, n, row, ta); box.append(c);
+  }
+}
+function tab(which) {
+  $("tabSeg").classList.toggle("on", which === "seg"); $("tabTgt").classList.toggle("on", which === "tgt");
+  $("segView").hidden = which !== "seg"; $("segView").style.display = which === "seg" ? "" : "none"; $("tgtView").hidden = which !== "tgt";
+  if (which === "tgt") { pauseAll(); renderTargets(); }
+}
+$("tabSeg").onclick = () => tab("seg"); $("tabTgt").onclick = () => tab("tgt");
+$("play").onclick = togglePlay; $("markBtn").onclick = addMark;
+$("loop").onclick = e => { e.target.classList.toggle("on"); };
+$("next").onclick = e => { chain = !chain; e.target.classList.toggle("on", chain); if (chain) $("loop").classList.remove("on"); };
+$("bar").onclick = e => { const r = $("bar").getBoundingClientRect(); seek(seg.t0 + (e.clientX - r.left) / r.width * (seg.t1 - seg.t0)); };
+$("note").oninput = () => { pickOf(seg.id).note = $("note").value; queue("picks", seg.id, { note:$("note").value }); };
+$("overall").oninput = () => { S.overall = $("overall").value; queue("overall", null, S.overall); };
+$("planYes").onclick = () => { const p = pickOf(seg.id); p.plan_ok = p.plan_ok === "yes" ? "" : "yes"; queue("picks", seg.id, { plan_ok:p.plan_ok }); renderSide(); };
+$("planNo").onclick = () => { const p = pickOf(seg.id); p.plan_ok = p.plan_ok === "no" ? "" : "no"; queue("picks", seg.id, { plan_ok:p.plan_ok }); renderSide(); };
+$("planFix").oninput = () => { const p = pickOf(seg.id); p.plan_fix = $("planFix").value; queue("picks", seg.id, { plan_fix:p.plan_fix }); };
+document.addEventListener("keydown", e => {
+  if (/TEXTAREA|INPUT/.test(e.target.tagName) || !$("tgtView").hidden || !seg) return;
+  if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+  else if (e.key === "m" || e.key === "M") { e.preventDefault(); addMark(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); seek(Math.max(seg.t0, songT() - 1)); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); seek(Math.min(seg.t1 - 0.05, songT() + 1)); }
+  else if (/^[1-9]$/.test(e.key)) { const b = $("vers").children[+e.key - 1]; if (b) setActive(b.dataset.v); }
+});
+(async () => {
+  S = await (await fetch("/api/state", { cache:"no-store" })).json();
+  S.picks = S.picks || {};
+  $("overall").value = S.overall || "";
+  if (S.segments.length) openSeg(S.segments[0], false);
+  if (!S.versions.length && S.targets.length) tab("tgt");
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
