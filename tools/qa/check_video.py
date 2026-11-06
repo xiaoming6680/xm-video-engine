@@ -1,11 +1,11 @@
 """成片技术检查：真峰值（防爆音）、空帧、闪光（3×3 分区）、音画偏移、色彩标签。
-docs/质量验收.md 第三节「技术」。响度不设目标、不判对错（B 站、抖音不统一响度，压到 −14 LUFS 会比别的视频小），只列出来参考。
+docs/检查和评审.md「技术」。响度不设目标、不判对错（B 站、抖音不统一响度，压到 −14 LUFS 会比别的视频小），只列出来参考。
 
 用法：
   python tools/qa/check_video.py out/final.mp4 [--song audio/song.wav --start 0] [--douyin out/wip/douyin_test.mp4] [--hits 12.4,31.0] [--no-flash]
 
 - 闪光（默认就查，--no-flash 跳过）：画面分 3×3 区，每区按线性相对亮度 Y 找相反方向的成对变化（一次变化 ≥ 0.1，
-  暗的一端 < 0.8，约等于 200 nit 显示器上 20 cd/m²、暗端 < 160 cd/m²），任一区任意 1 秒内超过 3 次闪烁（7 次变化）就不过。
+  暗的一端 < 0.8，约等于 200 nit 显示器上 20 cd/m²、暗端 < 160 cd/m²），任一区任意 1 秒内超过 3 次闪烁（7 次变化）就列出来。超了要告诉用户，由用户定要不要改画面、加警告卡。
   整帧平均亮度只看得见大面积同时闪；局部大闪（半边画面一亮一暗）要分区才看得出
 - 音画偏移：成片音轨和原曲（--song，从 --start 起）做互相关，差几个采样。AAC 编码有 1024–2048 采样的起始延迟，
   靠 MP4 的 edit list 抵消；混流丢了它，声音会整体晚 20–40 ms。默认用项目的 audio/song.wav 和 src/config.ts 的 VIDEO_START
@@ -13,7 +13,7 @@ docs/质量验收.md 第三节「技术」。响度不设目标、不判对错�
 - --hits（成片秒）：重击（drop、撞击、高潮那一下）在手机外放上是不是全片最响的几下之一。手机喇叭只放得出约 350 Hz–9 kHz，
   能量全在低频的重击在手机上会输给一个密集的高音；按这个频段每 200 ms 一窗量响度，报每个重击在全片的排名百分位。
   只是提示，不影响退出码（MV 的混音是歌本身的；自己加音效的片子按它调）。做法参考 mg-styles-15 的 hitmax.py（MIT）
-色彩标签、真峰值、音画偏移、空帧、闪光任何一项不过时退出码为 1（重击只是提示）。
+色彩标签、真峰值、音画偏移、空帧任何一项不过时退出码为 1（闪光、重击只是提示）。片头有卡片时加 --lead 秒数，否则音画偏移会误报。
 """
 import argparse
 import json
@@ -133,10 +133,10 @@ def stream_starts(path: str) -> dict[str, float]:
     return {x["codec_type"]: float(x.get("start_time", 0) or 0) for x in s["streams"]}
 
 
-def av_offset(video: str, song: str, start: float, dur: float = 20.0, sr: int = 48000) -> int | None:
+def av_offset(video: str, song: str, start: float, dur: float = 20.0, sr: int = 48000, lead: float = 0.0) -> int | None:
     """成片音轨相对原曲（从 start 起）晚了几个采样（负数 = 早）；没有音轨返回 None。"""
     from frames import decode_audio
-    v = decode_audio(video, 0, dur, sr)
+    v = decode_audio(video, lead, dur, sr)
     s = decode_audio(song, start, dur, sr)
     if v is None or s is None or len(v) < sr or len(s) < sr:
         return None
@@ -201,6 +201,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video")
     ap.add_argument("--song", help="原曲（量音画偏移）；默认项目的 audio/song.wav（存在时）")
+    ap.add_argument("--lead", type=float, default=0.0, help="歌开始之前有多少秒片头（警告卡、冷开场）：音画偏移从这之后比")
     ap.add_argument("--start", type=float, help="成片 0 秒对应原曲的秒数；默认 src/config.ts 的 VIDEO_START")
     ap.add_argument("--douyin", help="按抖音常见码率重编码一份到这个路径")
     ap.add_argument("--hits", help="重击时刻（成片秒，逗号分隔）：查手机频段上它们是不是全片最响的几下")
@@ -231,7 +232,7 @@ def main() -> None:
             fr = json.loads(run([FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "json", a.video]))["streams"][0]["r_frame_rate"].split("/")
             fps_v = float(fr[0]) / float(fr[1])
             start = round(start * fps_v) / fps_v
-        off = av_offset(a.video, song, start)
+        off = av_offset(a.video, song, start, lead=a.lead)
         st = stream_starts(a.video)
         if off is None:
             print("[--] 没有音轨，跳过音画偏移")
@@ -250,7 +251,7 @@ def main() -> None:
     if not a.no_flash:
         ys, fps = region_luma(a.video)
         fl = flash_report(ys, fps)
-        bad |= bool(fl)
+        # 闪光只报告，不算不过：要不要改画面、加不加警告卡由用户定（《蜈蚣》看过超限数字后选了片头加警告卡）
         print(f"[{'OK' if not fl else '!!'}] 闪光：3×3 分区，每区每秒 ≤ {MAX_FLASH_PER_S} 次" +
               "".join(f"\n      {name}：" + "，".join(f"{t:.1f}s 起 {n:g} 次/秒" for t, n in hits) for name, hits in fl.items()))
 

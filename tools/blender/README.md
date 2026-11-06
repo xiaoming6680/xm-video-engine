@@ -1,17 +1,22 @@
 # Blender 镜头
 
-Blender 渲序列帧给引擎当画面（`app/src/library/kit/plate.ts`）。用法在各文件开头：
+Blender 渲序列帧：可以直接成片（`tools/frames_to_video.py`），也可以当底板放进 app（`library/kit/plate.ts`）。用法在各文件开头：
 
 | 文件 | 做什么 |
 |---|---|
 | `render.py` | 驱动：镜头表（shots 模块）→ 每帧快门开、中、关打关键帧 → 按歌曲帧号出 EXR / PNG、`cam.json`、`frames.json`，断点续渲；`--still` 看图 |
 | `lib.py` | 渲染设置、材质、几何、灯光相机、缓动；`held_keys`（节点插槽按帧换值）、`drive_time`（节点插槽随时间走）、`smooth_range`（Map Range 平滑映射）、`studio_strips`（只给反射看的影棚灯带） |
 | `shots_example.py` | 示例镜头 `drop` |
+| `toon.py`、`shots_toon_example.py` | 漫画墨线和网点、粗字块（《蜈蚣》的画风），可选 |
+| `verify_frames.py` | 两组序列帧比对，抓连续渲染偶发的整段变黑（普通 Python） |
+| 镜头的 `pre_render(S, t)` | 可选钩子：渲这一帧之前改节点值、藏物体（比如只把当前画面的物体送进渲染器，省 BVH 时间） |
 | `cam_project.py` | 按渲染的相机（`cam.json`）把 3D 点投到画面上：每帧的屏幕位置和视半径，`--check` 在序列帧上画绿圈核对（普通 Python） |
 
 ```bash
-"E:/Program Files/Steam/steamapps/common/Blender/blender.exe" -b --factory-startup -P tools/blender/render.py -- --shots shots_example --shot drop --still 3.2
+blender -b --factory-startup -P <引擎>/tools/blender/render.py -- --root . --shots shots_example --shot drop --still 3.2
 ```
+
+镜头模块先在 `tools/blender/` 找，再在项目的 `blender/` 找。这台电脑的 Blender 在 `E:/Program Files/Steam/steamapps/common/Blender/blender.exe`。`--scale 200` 出 4K 时，帧写到另一个目录（`--out assets/blender4k/镜头`），再用 `verify_frames.py` 和 1080p 比对。
 
 ## 坑（Blender 5.x + Cycles，If The Sun Burns Out 踩过）
 

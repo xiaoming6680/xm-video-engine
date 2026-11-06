@@ -249,6 +249,8 @@ def main():
             if not flag('--force') and all(os.path.exists(p) for p in paths.values()):
                 continue  # 已渲好的帧跳过（中断后接着渲）
         sc.frame_set(f)
+        if 'pre_render' in shot:
+            shot['pre_render'](S, f / fps)  # 可选：渲这一帧之前改节点、藏物体（值不用打关键帧时）
         st = shot['at'](S, f / fps)
         if 'exposure' in st:
             lib.set_exposure(st['exposure'] if not arg('--exposure') else float(arg('--exposure')))
