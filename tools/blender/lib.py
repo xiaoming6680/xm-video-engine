@@ -14,7 +14,10 @@ def find_root(arg=None):
         return os.path.abspath(arg)
     if os.path.exists(os.path.join(os.getcwd(), 'data', 'audio.json')):
         return os.getcwd()
-    return os.path.dirname(os.path.dirname(HERE))
+    base = os.path.dirname(os.path.dirname(HERE))
+    print(f"[lib] 当前目录没有 data/audio.json，用 {base} 当项目根目录（读写都在那里）；"
+          f"不对就在项目根目录运行，或传项目路径", flush=True)
+    return base
 
 
 ROOT = find_root()

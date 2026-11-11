@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ffmpeg_path import FFMPEG, FFPROBE  # noqa: E402
+from project_config import video_range  # noqa: E402
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -101,14 +102,8 @@ def mmss(t):
 
 
 def config_range():
-    """app/src/config.ts 的 VIDEO_START、VIDEO_END（视频在歌里的起止）；没有 app 或没写返回 None。check_video.py 读的是同一处。"""
-    cfg = ROOT / "app" / "src" / "config.ts"
-    if not cfg.exists():
-        return None, None
-    t = cfg.read_text(encoding="utf-8")
-    m0 = re.search(r"VIDEO_START\s*(?::[^=;]*)?=\s*(-?[\d.]+)", t)
-    m1 = re.search(r"VIDEO_END\s*(?::[^=;]*)?=\s*(-?[\d.]+)", t)
-    return (float(m0[1]) if m0 else None), (float(m1[1]) if m1 else None)
+    """app/src/config.ts 的 VIDEO_START、VIDEO_END（视频在歌里的起止）；没有 app 或没写返回 None。"""
+    return video_range(ROOT)
 
 
 def pcm(path, sr):

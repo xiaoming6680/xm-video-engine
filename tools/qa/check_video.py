@@ -27,6 +27,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ffmpeg_path import FFMPEG, FFPROBE  # noqa: E402
+from project_config import video_start  # noqa: E402
 
 MAX_TP = -1.0                         # 真峰值上限（dBTP）：再高 AAC 编码后会爆音
 MAX_FLASH_PER_S = 3
@@ -182,12 +183,7 @@ def hit_report(t: np.ndarray, db: np.ndarray, hits: list[float]) -> list[tuple[f
 
 
 def config_video_start(root: Path) -> float:
-    cfg = root / "app/src/config.ts"
-    if cfg.exists():
-        m = re.search(r"VIDEO_START\s*=\s*([\d.]+)", cfg.read_text(encoding="utf-8"))
-        if m:
-            return float(m.group(1))
-    return 0.0
+    return video_start(root)
 
 
 def color_tags(path: str) -> dict:

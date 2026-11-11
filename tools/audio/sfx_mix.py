@@ -32,6 +32,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _env  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from project_config import video_range  # noqa: E402
 
 if __name__ == "__main__":
     _env.ensure()
@@ -77,12 +79,7 @@ def build_mix(music, items, dur, fps=60.0, lead_frames=1.0, duck=3.0, bed=-20.0,
 
 
 def config_video_start(root: Path) -> float | None:
-    cfg = root / "app/src/config.ts"
-    if cfg.exists():
-        mm = re.search(r"VIDEO_START\s*=\s*([\d.]+)", cfg.read_text(encoding="utf-8"))
-        if mm:
-            return float(mm.group(1))
-    return None
+    return video_range(root)[0]
 
 
 def main():

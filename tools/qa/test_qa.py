@@ -26,6 +26,28 @@ def write_wav(path: Path, x: np.ndarray, sr: int = 48000):
         w.writeframes(y.tobytes())
 
 
+class ProjectConfigTest(unittest.TestCase):
+    """VIDEO_START 的几种写法：带类型标注、负数（片头卡在歌开始之前）、VIDEO_END 写 null。"""
+
+    def test_forms(self):
+        import tempfile
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from project_config import video_range, video_start
+        cases = [
+            ("export const VIDEO_START = 15.6;\nexport const VIDEO_END = 82;", (15.6, 82.0)),
+            ("export const VIDEO_START: number = 15.6;\nexport const VIDEO_END: number | null = null;", (15.6, None)),
+            ("export const VIDEO_START = -4.5;", (-4.5, None)),
+            ("export const VIDEO_START_PAD = 3;\nexport const VIDEO_START = .5;", (0.5, None)),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / "app" / "src" / "config.ts"
+            cfg.parent.mkdir(parents=True)
+            for text, want in cases:
+                cfg.write_text(text, encoding="utf-8")
+                self.assertEqual(video_range(Path(d)), want, text)
+            self.assertEqual(video_start(Path(d) / "没有这个目录"), 0.0)
+
+
 class FlashTest(unittest.TestCase):
     fps = 60
 

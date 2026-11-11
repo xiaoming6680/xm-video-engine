@@ -7,16 +7,17 @@ import json
 import os
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent  # 项目根目录
-SHARED = str(ROOT / "tts")  # (in the base engine itself: its own folder)
-_local = ROOT / "tts"
+ROOT = Path.cwd()  # 项目根目录：和其他工具一样读写当前目录（在引擎里原地跑也不会写进引擎）
+SHARED = str(Path(__file__).resolve().parent)  # (in the base engine itself: its own folder)
+_local = Path(__file__).resolve().parent  # 这份脚本所在的 tts/（复制进项目时就是项目的）
 HOME = Path(os.environ.get("XM_TTS") or (_local if (_local / "models").is_dir() else SHARED))
 MODELS = HOME / "models"
 OUT = ROOT / "tts" / "out"  # 生成的音频放在项目自己这里
 VOICES = OUT / "voices"
 TAKES = OUT / "takes"
 
-_FFMPEG_DLL = [Path("E:/ffmpeg-master-latest-win64-gpl-shared/bin")]
+# ffmpeg 共享库版的 bin 目录：$FFMPEG_SHARED_DIR，否则下面这个常见位置
+_FFMPEG_DLL = [Path(p) for p in (os.environ.get("FFMPEG_SHARED_DIR"), "E:/ffmpeg-master-latest-win64-gpl-shared/bin") if p]
 
 
 def ffmpeg_dlls():

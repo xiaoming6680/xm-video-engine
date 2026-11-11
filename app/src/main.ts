@@ -214,6 +214,7 @@ function setupPlayer() {
   });
 
   let frames = 0, fpsT = performance.now(), fps = 0;
+  let lastError = '';
   const tick = () => {
     if (playing) {
       // smooth the coarse audio clock with performance.now()
@@ -224,16 +225,24 @@ function setupPlayer() {
       if (audio.ended) playing = false;
     }
     // scenes that load per frame (Scene.prepare) start loading now and show what they have until it arrives
-    void engine.prepare(t, 1 / 60);
-    engine.render(t, 1 / 60);
-    curves?.frame();
+    let failed = '';
+    try {
+      void engine.prepare(t, 1 / 60);
+      engine.render(t, 1 / 60);
+      curves?.frame();
+    } catch (err) {
+      // a typo in a scene must not freeze the preview: report it once, keep the clock running so a fix (HMR) shows up
+      failed = String((err as Error)?.message ?? err);
+      if (failed !== lastError) console.error(err);
+    }
+    lastError = failed;
     scrub.value = String(t);
     frames++;
     const now = performance.now();
     if (now - fpsT > 500) { fps = (frames * 1000) / (now - fpsT); frames = 0; fpsT = now; }
     const e = TIMELINE.find((x) => t >= x.start && t < x.end);
     const l = engine.lyrics.lineAt(t);
-    info.textContent = `song ${t.toFixed(2)}s  video ${(t - VIDEO_START).toFixed(2)}s  bar ${engine.audio.barAt(t).toFixed(2)}  ${engine.audio.bpmAt(t).toFixed(1)} BPM  [${e?.id ?? '—'}]  ${fps.toFixed(0)}fps   ${l ? `line ${l.i} (${[...l.text].length} chars)` : ''}${loop ? '  LOOP' : ''}`;
+    info.textContent = `song ${t.toFixed(2)}s  video ${(t - VIDEO_START).toFixed(2)}s  bar ${engine.audio.barAt(t).toFixed(2)}  ${engine.audio.bpmAt(t).toFixed(1)} BPM  [${e?.id ?? '—'}]  ${fps.toFixed(0)}fps   ${l ? `line ${l.i} (${[...l.text].length} chars)` : ''}${loop ? '  LOOP' : ''}${failed ? `   ERROR: ${failed}` : ''}`;
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);

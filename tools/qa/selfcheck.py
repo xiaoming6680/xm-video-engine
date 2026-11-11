@@ -30,6 +30,9 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
+from project_config import video_start  # noqa: E402
+
 ROOT = Path.cwd()
 OUT = ROOT / "out" / "qa"
 PY = sys.executable
@@ -62,12 +65,7 @@ def find_bun() -> str:
 
 
 def config_start() -> float:
-    cfg = ROOT / "app" / "src" / "config.ts"
-    if cfg.exists():
-        m = re.search(r"VIDEO_START\s*(?::[^=;]*)?=\s*(-?[\d.]+)", cfg.read_text(encoding="utf-8"))
-        if m:
-            return float(m.group(1))
-    return 0.0
+    return video_start(ROOT)
 
 
 def film_state() -> dict | None:

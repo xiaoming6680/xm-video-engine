@@ -380,29 +380,33 @@ export class Engine {
       };
       clearRT(r, this.sumRT, [0, 0, 0], 0);
       SUBFRAME.frame = t;
-      if (!adaptive) {
-        n = samples;
-        for (let k = 0; k < n; k++) sub(k, (k + 0.5) / n - 0.5, this.sumRT, dt / n);
-      } else {
-        const lg3 = (x: number) => Math.log(x / 4) / Math.log(3);
-        const lo = Math.max(0, Math.round(lg3(samples.min))), hi = Math.max(lo, Math.floor(lg3(maxAdaptive) + 1e-9));
-        const u = ternaryOffsets(hi);
-        n = 4 * 3 ** lo;
-        this.lastErrors = [];
-        for (let k = 0; k < n; k++) sub(k, u[k]!, this.sumRT, dt / n);
-        for (let l = lo; l < hi; l++) {
-          clearRT(r, this.newRT, [0, 0, 0], 0);
-          for (let k = n; k < 3 * n; k++) sub(k, u[k]!, this.newRT, dt / (3 * n));
-          const err = this.sampleError(n) / 2;
-          this.lastErrors.push(err);
-          this.comp.draw(r, this.newRT.texture, this.sumRT, { mode: 'add', opacity: 1, premult: false });
-          n *= 3;
-          if (err < samples.tol) break;
+      try {
+        if (!adaptive) {
+          n = samples;
+          for (let k = 0; k < n; k++) sub(k, (k + 0.5) / n - 0.5, this.sumRT, dt / n);
+        } else {
+          const lg3 = (x: number) => Math.log(x / 4) / Math.log(3);
+          const lo = Math.max(0, Math.round(lg3(samples.min))), hi = Math.max(lo, Math.floor(lg3(maxAdaptive) + 1e-9));
+          const u = ternaryOffsets(hi);
+          n = 4 * 3 ** lo;
+          this.lastErrors = [];
+          for (let k = 0; k < n; k++) sub(k, u[k]!, this.sumRT, dt / n);
+          for (let l = lo; l < hi; l++) {
+            clearRT(r, this.newRT, [0, 0, 0], 0);
+            for (let k = n; k < 3 * n; k++) sub(k, u[k]!, this.newRT, dt / (3 * n));
+            const err = this.sampleError(n) / 2;
+            this.lastErrors.push(err);
+            this.comp.draw(r, this.newRT.texture, this.sumRT, { mode: 'add', opacity: 1, premult: false });
+            n *= 3;
+            if (err < samples.tol) break;
+          }
         }
+      } finally {
+        // a scene that throws must not leave the sub-frame state half set (the next frame would read it)
+        SS_TAP.value = -1;
+        SUBFRAME.k = SUBFRAME.s = -1;
+        SUBFRAME.frame = SUBFRAME.t = NaN;
       }
-      SS_TAP.value = -1;
-      SUBFRAME.k = SUBFRAME.s = -1;
-      SUBFRAME.frame = SUBFRAME.t = NaN;
       this.comp.draw(r, this.sumRT.texture, this.avgRT, { mode: 'replace', opacity: 1 / n, premult: false });
       outTex = this.avgRT.texture;
     }
