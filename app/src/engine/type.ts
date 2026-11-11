@@ -1,7 +1,7 @@
 // Typography: font registry (Canvas2D via FontFace + outlines via opentype.js),
 // glyph layout, text outlines as Path2D, and point sampling of text for particle effects.
 import * as opentype from 'opentype.js';
-import { ZH, cjkFor, CJK_FAMILIES } from './lang';
+import { cjkFor, CJK_FAMILIES } from './lang';
 import { EXTRA_FONTS } from '../config';
 
 /**
@@ -68,7 +68,7 @@ function nearest(list: number[], v: number) {
  * (lang.ts cjkFor), so Chinese text set in any of the video's families falls back glyph by glyph.
  */
 export const font = (family: string, sizePx: number) =>
-  ZH && !family.startsWith('Noto') ? `${sizePx}px "${family}", "${cjkFor(family)}"` : `${sizePx}px "${family}"`;
+  !family.startsWith('Noto') ? `${sizePx}px "${family}", "${cjkFor(family)}"` : `${sizePx}px "${family}"`;
 
 const otCache = new Map<string, opentype.Font>();
 const bufCache = new Map<string, ArrayBuffer>();
@@ -93,7 +93,7 @@ export async function loadFonts(): Promise<void> {
   const reg = (d: FontDef) => OPTIONAL.has(d.family)
     ? register(d).catch((e) => console.warn(`optional font ${d.family} (fonts/${d.file}) not loaded: ${e}`))
     : register(d);
-  await Promise.all([...DEFS.map(reg), ZH ? loadCjkFonts() : null]);
+  await Promise.all([...DEFS.map(reg), loadCjkFonts()]);
   await document.fonts.ready;
 }
 

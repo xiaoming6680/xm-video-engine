@@ -33,7 +33,6 @@ export const trackScope = { id: '', t: 0 };
 
 const registry = new Map<string, TrackInfo>();
 let overrides: Record<string, Keys> = {};
-const listeners = new Set<() => void>();
 
 /** 读 tracks.json（boot 时调一次）。没有这个文件就全用代码里的。 */
 export async function loadTracks(): Promise<void> {
@@ -67,9 +66,7 @@ export function isOverridden(id: string): boolean { return id in overrides; }
 export function setKeys(id: string, keys: Keys | undefined) {
   if (keys) overrides[id] = keys.map((k) => [k[0], k[1], k[2]] as Key<number>).sort((a, b) => a[0] - b[0]);
   else delete overrides[id];
-  for (const f of listeners) f();
 }
-export function onTracksChange(f: () => void) { listeners.add(f); return () => listeners.delete(f); }
 /** 整份 json（编辑器保存时写回 app/src/tracks.json）。 */
 export function tracksJSON(): string {
   const tracks: Record<string, Keys> = {};

@@ -195,9 +195,6 @@ export class DofPass {
   }
 }
 
-/** Colour-only copy of a GBuf target (so a pass can read one target and write another). */
-export function scratchRT() { return makeRT(W, H, { depthBuffer: false }); }
-
 /**
  * The game worlds' look (where plain 3D looks cheap, stylise): ink lines where depth
  * breaks (silhouettes, creases), light posterised into soft bands per stop, a touch of saturation. Reads as drawn, not
