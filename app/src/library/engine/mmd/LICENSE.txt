@@ -1,0 +1,3 @@
+MMDLoader.js, MMDToonShader.js (three.js r171 examples, MIT License, Copyright 2010-2024 three.js authors)
+mmdparser.module.js (mmd-parser by takahirox, MIT License)
+Copied unmodified except for import paths; see the three.js repository for the full license text.

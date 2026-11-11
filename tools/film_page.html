@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>逐段挑选</title>
+<style>
+  :root {
+    --bg:#111214; --panel:#1a1c20; --panel2:#23262b; --line:#2f3238; --text:#ece9e2; --dim:#9a9ca3; --faint:#6b6e75;
+    --pick:#ff5a3c;   /* 选中的那一版 */
+    --ok:#4cc38a;     /* 锁定 */
+    --wait:#e8b339;   /* 等你：没选、AI 在问 */
+    --ar:1.7778;
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14.5px/1.55 "Segoe UI Variable Text","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif; }
+  button { font:inherit; color:var(--text); background:var(--panel2); border:1px solid var(--line); border-radius:7px; padding:6px 12px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:#5a5e68; }
+  button:disabled { color:var(--faint); cursor:default; }
+  kbd { font:12px/1 ui-monospace,Consolas,monospace; color:var(--dim); border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:2px 5px; }
+  .hint { color:var(--dim); font-size:13px; }
+
+  /* 顶栏：进度和下一步 */
+  header { display:flex; flex-wrap:wrap; gap:14px; align-items:center; padding:10px 18px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:5; }
+  header b { font-size:16px; letter-spacing:.02em; }
+  .tabs { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .tabs button { border:0; border-radius:0; background:transparent; padding:5px 14px; }
+  .tabs button.on { background:var(--panel2); }
+  #summary { display:flex; gap:12px; font-size:13.5px; color:var(--dim); }
+  #summary span b { color:var(--text); font-weight:600; }
+  #summary .wait b { color:var(--wait); }
+  #nextTodo { background:var(--wait); border-color:var(--wait); color:#1d1606; font-weight:600; }
+  #nextTodo:disabled { background:var(--panel2); border-color:var(--line); color:var(--dim); font-weight:400; }
+  #save { margin-left:auto; color:var(--faint); font-size:12.5px; }
+  #save.err { color:var(--wait); }
+
+  main { display:grid; grid-template-columns:minmax(0,1fr) 360px; min-height:calc(100vh - 53px); }
+  #stage { padding:16px 20px; min-width:0; display:flex; flex-direction:column; gap:12px; }
+
+  /* 画面 */
+  /* 画面高度 = 窗口减去上下其他东西，整片条、进度条、版本都留在首屏 */
+  #frame { position:relative; background:#000; aspect-ratio:var(--ar); width:min(100%, calc(max(100vh - 430px, 240px) * var(--ar))); margin:0 auto; border-radius:8px; overflow:hidden; }
+  #frame video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; visibility:hidden; }
+  #frame video.on { visibility:visible; }
+  /* 并列：所有版本同时摆出来，同一个时钟；点哪个画面就听哪个、Enter 选的也是它 */
+  #frame.side { display:grid; grid-template-columns:repeat(var(--n,2), minmax(0,1fr)); gap:8px; background:transparent; aspect-ratio:auto; width:100%; overflow:visible; }
+  #frame.side video { position:relative; inset:auto; width:100%; height:auto; aspect-ratio:var(--ar); visibility:visible; background:#000; border-radius:8px; cursor:pointer; outline:2px solid transparent; outline-offset:-2px; }
+  #frame.side video.on { outline-color:var(--ok); }
+  #frame .vlab { position:absolute; top:10px; padding:3px 9px; border-radius:6px; font-size:13px; background:rgba(0,0,0,.62); pointer-events:none; display:none; z-index:2; }
+  #frame.side .vlab { display:block; }
+  #frame .vlab.on { color:var(--ok); }
+  #frame.side #watchTag { display:none; }
+  #frame.side #pickTag { top:auto; bottom:10px; }
+  #sideBtn.on { background:var(--panel2); border-color:var(--ok); color:var(--ok); }
+  #empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--dim); text-align:center; padding:20px; }
+  .tag { position:absolute; top:10px; padding:4px 10px; border-radius:6px; font-size:13px; background:rgba(0,0,0,.62); backdrop-filter:blur(4px); pointer-events:none; }
+  #watchTag { left:10px; }
+  #watchTag b { font-size:15px; }
+  #pickTag { right:10px; }
+  #pickTag.same { color:var(--pick); }
+  #pickTag.lock { color:var(--ok); }
+  #pickTag.none { color:var(--wait); }
+
+  /* 这段的进度条 */
+  .scrub { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; font-variant-numeric:tabular-nums; font-size:12.5px; color:var(--dim); }
+  #bar { height:14px; background:var(--panel2); border-radius:7px; cursor:pointer; position:relative; touch-action:none; }
+  #prog { position:absolute; left:0; top:0; bottom:0; background:#d8d4cc; border-radius:7px; }
+  #head { position:absolute; top:-4px; width:4px; height:22px; margin-left:-2px; background:#fff; border-radius:2px; box-shadow:0 0 0 2px rgba(0,0,0,.4); }
+  #bar i { position:absolute; top:-5px; width:3px; height:24px; margin-left:-1px; background:var(--wait); border-radius:2px; cursor:pointer; }
+
+  /* 播放控制 */
+  .transport { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  #play { min-width:86px; font-weight:600; }
+  .seg-ctl { display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg-ctl button { border:0; border-radius:0; background:transparent; padding:5px 11px; color:var(--dim); }
+  .seg-ctl button.on { background:var(--panel2); color:var(--text); }
+  #clock { font-variant-numeric:tabular-nums; color:var(--dim); font-size:13px; }
+  .vol { margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px; }
+  .vol input { width:110px; accent-color:#d8d4cc; }
+  #volText { min-width:3.2em; font-variant-numeric:tabular-nums; }
+
+  /* 版本：点了是「看」，不是「选」 */
+  .verhead { display:flex; align-items:baseline; gap:10px; }
+  .verhead b { font-size:13.5px; }
+  #vers { display:flex; flex-wrap:wrap; gap:8px; }
+  .ver { display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-width:120px; max-width:230px; text-align:left; padding:7px 11px; background:var(--panel); position:relative; }
+  .ver .top { display:flex; gap:7px; align-items:center; font-weight:600; }
+  .ver small { color:var(--dim); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .ver.watch { border-color:#fff; background:var(--panel2); box-shadow:inset 0 -3px 0 #fff; }
+  .ver .chosen { font-size:11.5px; font-weight:600; color:var(--pick); }
+  .ver .chosen.lock { color:var(--ok); }
+
+  /* 全片的分段条 */
+  #strip { position:relative; display:flex; gap:3px; margin-top:4px; }
+  .blk { flex-basis:0; min-width:34px; height:44px; border-radius:6px; padding:5px 7px; background:var(--panel); border:1px solid var(--line); cursor:pointer; overflow:hidden; font-size:12px; line-height:1.3; position:relative; }
+  .blk b { display:block; font-size:12.5px; }
+  .blk span { color:var(--dim); white-space:nowrap; }
+  .blk.todo { border-style:dashed; border-color:var(--wait); }
+  .blk.picked { border-color:#8a8d94; }
+  .blk.locked { border-color:var(--ok); background:rgba(76,195,138,.10); }
+  .blk.none { border-color:var(--pick); background:rgba(255,90,60,.08); }
+  .blk.cur { outline:2px solid #fff; outline-offset:1px; }
+  .blk .ask { position:absolute; top:5px; right:6px; width:8px; height:8px; border-radius:50%; background:var(--wait); }
+  #shead { position:absolute; top:-3px; bottom:-3px; width:2px; background:#fff; pointer-events:none; }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--dim); }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; border:1px solid; margin-right:5px; vertical-align:-1px; }
+
+  /* 右栏：这段的决定 */
+  aside { border-left:1px solid var(--line); padding:16px 18px; overflow:auto; max-height:calc(100vh - 53px); position:sticky; top:53px; }
+  aside h2 { margin:0; font-size:17px; }
+  aside h3 { margin:20px 0 8px; font-size:13px; color:var(--dim); font-weight:500; }
+  .segmeta { color:var(--dim); font-size:13px; font-variant-numeric:tabular-nums; margin:2px 0 14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:12px; }
+  .card + .card { margin-top:12px; }
+  .card.ask { border-color:var(--wait); }
+  .card .label { font-size:12.5px; color:var(--dim); margin-bottom:6px; }
+  .card.ask .label { color:var(--wait); }
+  .plan { white-space:pre-wrap; margin-bottom:10px; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .state { font-size:15px; margin-bottom:10px; }
+  .state b.pick { color:var(--pick); } .state b.lock { color:var(--ok); } .state b.none { color:var(--wait); }
+  #choose { background:var(--pick); border-color:var(--pick); color:#fff; font-weight:600; }
+  #choose:disabled { background:var(--panel2); border-color:var(--line); color:var(--dim); font-weight:400; }
+  #lock { border-color:var(--ok); color:var(--ok); font-weight:600; }
+  #lock.on { background:var(--ok); color:#06130d; }
+  #lock:disabled { border-color:var(--line); color:var(--faint); font-weight:400; }
+  a.link { color:var(--dim); text-decoration:underline; cursor:pointer; font-size:13px; }
+  button.yes.on { background:var(--ok); border-color:var(--ok); color:#06130d; }
+  button.no.on { background:var(--wait); border-color:var(--wait); color:#1d1606; }
+  #done { border-color:var(--ok); }
+  textarea, .mark input { width:100%; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:7px; padding:8px; font:inherit; }
+  textarea { min-height:68px; resize:vertical; }
+  .mark { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+  .mark a { color:var(--wait); cursor:pointer; white-space:nowrap; font-variant-numeric:tabular-nums; font-size:13px; }
+  .mark input { flex:1; min-width:0; padding:4px 7px; }
+  .mark b { cursor:pointer; color:var(--dim); font-weight:400; padding:0 4px; }
+  .keys { display:grid; grid-template-columns:auto 1fr; gap:6px 10px; font-size:12.5px; color:var(--dim); align-items:center; }
+
+  #targets { padding:16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:16px; }
+  .tcard { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:10px; }
+  .tcard video { width:100%; border-radius:6px; background:#000; display:block; }
+  button.ok.on { background:var(--ok); border-color:var(--ok); color:#06130d; }
+  button.bad.on { background:var(--pick); border-color:var(--pick); color:#fff; }
+
+  @media (max-width:1050px) { main { grid-template-columns:1fr; } aside { border-left:0; border-top:1px solid var(--line); max-height:none; position:static; } #frame { width:100%; } }
+</style>
+</head>
+<body>
+<header>
+  <b>逐段挑选</b>
+  <div class="tabs"><button id="tabSeg" class="on">逐段</button><button id="tabTgt">靶子</button></div>
+  <div id="summary"></div>
+  <button id="nextTodo" title="跳到下一段还没定的，或 AI 在等你回答的 (N)">下一个待定 →</button>
+  <span id="save">已保存</span>
+</header>
+<main id="segView">
+  <section id="stage">
+    <div>
+      <div class="verhead"><b>整片</b><span class="hint">点一段跳过去</span>
+        <div class="legend" style="margin-left:auto">
+          <span><i style="border-color:var(--wait);border-style:dashed"></i>待定</span>
+          <span><i style="border-color:#8a8d94"></i>选了</span>
+          <span><i style="border-color:var(--ok);background:rgba(76,195,138,.25)"></i>锁定</span>
+          <span><i style="border-color:var(--pick);background:rgba(255,90,60,.2)"></i>都不要</span>
+          <span><i style="border-color:var(--wait);background:var(--wait);border-radius:50%"></i>AI 在等你回答</span>
+        </div>
+      </div>
+      <div id="strip" style="margin-top:8px"><div id="shead"></div></div>
+    </div>
+    <div id="frame">
+      <div id="empty">这段还没有版本。<br>让 AI 用 film.py add 收一版</div>
+      <div class="tag" id="watchTag" hidden></div>
+      <div class="tag" id="pickTag" hidden></div>
+    </div>
+    <div class="scrub"><span id="t0"></span><div id="bar"><div id="prog"></div><div id="head"></div></div><span id="t1"></span></div>
+    <div class="transport">
+      <button id="play">播放</button>
+      <button id="sideBtn" title="并列看所有版本（V）：同一个时钟，点哪个画面就听哪个、Enter 选的也是它">并列看</button>
+      <button id="markBtn" title="喜欢或不喜欢的瞬间记下来 (M)">记下这一刻</button>
+      <span class="hint">播完这段：</span>
+      <div class="seg-ctl" id="after"><button data-m="loop" class="on">循环</button><button data-m="chain">接着播下一段</button><button data-m="stop">停</button></div>
+      <label class="vol" title="音量（↑ ↓ 每次 10%）">音量 <input type="range" id="vol" min="0" max="100" step="1"> <span id="volText"></span></label>
+      <span id="clock"></span>
+    </div>
+    <div>
+      <div class="verhead"><b>这段的版本</b><span class="hint">点一下或按数字键切着看，时间不变，不会改选择</span></div>
+      <div id="vers" style="margin-top:8px"></div>
+    </div>
+  </section>
+  <aside>
+    <h2 id="segTitle"></h2>
+    <div class="segmeta" id="segMeta"></div>
+
+    <div class="card ask" id="planBox" hidden>
+      <div class="label" id="planLabel">AI 想这样做这段，对吗？</div>
+      <div class="plan" id="plan"></div>
+      <div class="btns"><button id="planYes" class="yes">对</button><button id="planNo" class="no">不对</button></div>
+      <textarea id="planFix" placeholder="哪里不对，应该怎样" hidden style="margin-top:8px"></textarea>
+    </div>
+
+    <div class="card" id="decide">
+      <div class="label">这段用哪一版</div>
+      <div class="state" id="state"></div>
+      <div class="btns">
+        <button id="choose"></button>
+        <button id="noneBtn" title="这段所有版本都不要，要重做">都不要</button>
+      </div>
+      <div class="btns" style="margin-top:10px">
+        <button id="lock"></button>
+        <a class="link" id="clearPick">清除选择</a>
+      </div>
+      <div class="hint" id="lockHint" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card" id="done" hidden>
+      <div class="label" style="color:var(--ok)">每段都定了</div>
+      <div>回到对话告诉 AI 就行；它会按你的选择拼合（film.py plan）。</div>
+    </div>
+
+    <h3>记下的瞬间</h3>
+    <div id="marks"></div>
+    <h3>这段的意见</h3>
+    <textarea id="note" placeholder="好在哪，哪要改"></textarea>
+    <h3>整片的意见</h3>
+    <textarea id="overall" placeholder="不针对某一段的话写这里"></textarea>
+    <h3>快捷键</h3>
+    <div class="keys">
+      <kbd>空格</kbd><span>播放 / 暂停</span>
+      <kbd>1–9</kbd><span>切着看第几版</span>
+      <kbd>Enter</kbd><span>选正在看的这版</span>
+      <kbd>L</kbd><span>锁定 / 解锁这段</span>
+      <kbd>N</kbd><span>下一个待定</span>
+      <kbd>[ ]</kbd><span>上一段 / 下一段</span>
+      <kbd>← →</kbd><span>后退 / 前进 1 秒</span>
+      <kbd>↑ ↓</kbd><span>音量大 / 小 10%</span>
+      <kbd>M</kbd><span>记下这一刻</span>
+      <kbd>V</kbd><span>并列看 / 单个看（并列时点画面切声音和要选的版本）</span>
+    </div>
+  </aside>
+</main>
+<div id="tgtView" hidden>
+  <div class="hint" style="padding:16px 16px 0">开工前对齐方向：带声音看，告诉 AI 要不要这种感觉、要的是哪一点。</div>
+  <div id="targets"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const MUTE = new URLSearchParams(location.search).has("mute"); // ?mute：Agent 在面板里测试时不出声
+let side = false; try { side = localStorage.getItem("film.side") === "1"; } catch (e) {}   // 并列看：记在这台电脑的浏览器里
+let S = null, seg = null, active = null, vids = {}, pending = { picks:{}, targets:{} }, saving = false, timer = null, after = "loop";
+const fmt = t => { t = Math.max(t, 0); return Math.floor(t / 60) + ":" + (t % 60).toFixed(2).padStart(5, "0"); };
+const media = f => "/m?f=" + encodeURIComponent(f);
+// 音量：默认 30%，调过的记在这台电脑的浏览器里
+let vol = 0.3;
+try { const x = localStorage.getItem("film.volume"); if (x !== null && isFinite(+x)) vol = Math.min(1, Math.max(0, +x)); } catch (e) {}
+function applyVol() {
+  for (const k in vids) { vids[k].volume = vol; vids[k].muted = MUTE || k !== active; }
+  document.querySelectorAll("#targets video").forEach(v => { v.volume = vol; });
+  $("vol").value = Math.round(vol * 100); $("volText").textContent = MUTE ? "静音" : Math.round(vol * 100) + "%";
+}
+function setVol(x) { vol = Math.min(1, Math.max(0, x)); try { localStorage.setItem("film.volume", String(vol)); } catch (e) {} applyVol(); }
+const pickOf = id => (S.picks[id] = S.picks[id] || {});
+const covers = s => S.versions.filter(v => v.t0 <= s.t0 + 0.01 && s.t1 - 0.01 <= v.t1);
+const verOf = id => S.versions.find(x => x.id === id);
+const asking = p => !!p.plan && p.plan_ok !== "yes" && p.plan_ok !== "no";
+const todo = s => { const p = S.picks[s.id] || {}; return !p.pick || asking(p); };
+
+// ---------------------------------------------------------------- 保存（和以前一样：按段合并，服务断了重试）
+function queue(kind, id, patch) {
+  if (kind === "overall") pending.overall = patch;
+  else pending[kind][id] = Object.assign(pending[kind][id] || {}, patch);
+  $("save").textContent = "保存中……"; $("save").className = "";
+  clearTimeout(timer); timer = setTimeout(flush, 350);
+}
+async function flush() {
+  if (saving) { timer = setTimeout(flush, 500); return; }
+  const body = pending; pending = { picks:{}, targets:{} }; saving = true;
+  try {
+    const r = await fetch("/api/save", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(body) });
+    if (!r.ok) throw 0;
+    $("save").textContent = "已保存 " + new Date().toLocaleTimeString(); $("save").className = "";
+  } catch (e) {
+    for (const k of ["picks", "targets"]) for (const id in body[k]) pending[k][id] = Object.assign(body[k][id], pending[k][id] || {});
+    if ("overall" in body && !("overall" in pending)) pending.overall = body.overall;
+    $("save").textContent = "没保存上，正在重试（终端里的 film.py page 要开着）"; $("save").className = "err";
+    timer = setTimeout(flush, 3000);
+  } finally { saving = false; }
+}
+window.addEventListener("beforeunload", e => { if (Object.keys(pending.picks).length || Object.keys(pending.targets).length || "overall" in pending) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------------------------------------------------------------- 顶栏、整片分段条
+function renderSummary() {
+  let lock = 0, pick = 0, none = 0, wait = 0, ask = 0;
+  for (const s of S.segments) {
+    const p = S.picks[s.id] || {};
+    if (p.locked) lock++; else if (p.pick === "none") none++; else if (p.pick) pick++; else wait++;
+    if (asking(p)) ask++;
+  }
+  const parts = [`<span>锁定 <b>${lock}</b></span>`, `<span>选了 <b>${pick}</b></span>`];
+  if (none) parts.push(`<span>都不要 <b>${none}</b></span>`);
+  parts.push(`<span class="${wait ? "wait" : ""}">待定 <b>${wait}</b></span>`);
+  if (ask) parts.push(`<span class="wait">AI 在等你回答 <b>${ask}</b></span>`);
+  $("summary").innerHTML = parts.join("");
+  const left = S.segments.filter(todo).length;
+  $("nextTodo").disabled = !left;
+  $("nextTodo").textContent = left ? `下一个待定 →（还有 ${left} 段）` : "每段都定了";
+  $("done").hidden = !!left || !S.segments.length;
+}
+function renderStrip() {
+  const box = $("strip"); [...box.querySelectorAll(".blk")].forEach(x => x.remove());
+  for (const s of S.segments) {
+    const p = S.picks[s.id] || {}, d = document.createElement("div");
+    d.className = "blk " + (p.locked ? "locked" : p.pick === "none" ? "none" : p.pick ? "picked" : "todo") + (s === seg ? " cur" : "");
+    d.style.flexGrow = Math.max(s.t1 - s.t0, 0.1);
+    const st = p.locked ? "锁定 " + p.pick : p.pick === "none" ? "都不要" : p.pick ? "选了 " + p.pick : "待定";
+    d.title = `${s.id}${s.name ? " " + s.name : ""}  ${fmt(s.t0)}–${fmt(s.t1)}  ${st}${asking(p) ? "  · AI 在等你回答" : ""}`;
+    d.innerHTML = `<b></b><span></span>`;
+    d.querySelector("b").textContent = s.id + (s.name ? " " + s.name : "");
+    d.querySelector("span").textContent = st;
+    if (asking(p)) { const a = document.createElement("i"); a.className = "ask"; d.append(a); }
+    d.onclick = () => { openSeg(s, false); seek(s.t0); };
+    box.append(d);
+  }
+}
+function drawStripHead(t) {
+  if (!S.segments.length) return;
+  const r0 = S.segments[0].t0, r1 = S.segments[S.segments.length - 1].t1;
+  $("shead").style.left = Math.min(100, Math.max(0, (t - r0) / (r1 - r0) * 100)) + "%";
+}
+function renderAll() { renderSummary(); renderStrip(); renderSide(); renderTags(); }
+
+// ---------------------------------------------------------------- 看：切版本、同步时钟
+function songT() { const v = vids[active]; return v ? v.currentTime + v._offset : (seg ? seg.t0 : 0); }
+function seek(t) { for (const k in vids) { try { vids[k].currentTime = Math.max(t - vids[k]._offset, 0); } catch (e) {} } drawClock(); }
+function setActive(id) {
+  const t = active && vids[active] ? songT() : seg.t0;
+  active = id;
+  for (const k in vids) vids[k].classList.toggle("on", k === id);
+  applyVol();
+  if (vids[id] && Math.abs(vids[id].currentTime + vids[id]._offset - t) > 0.05) { try { vids[id].currentTime = Math.max(t - vids[id]._offset, 0); } catch (e) {} }
+  renderVers(); renderSide(); renderTags(); applySide();
+}
+function applySide() {
+  const fr = $("frame"), n = Math.max(1, Object.keys(vids).length);
+  fr.classList.toggle("side", side && n > 1);
+  fr.style.setProperty("--n", n);
+  $("sideBtn").classList.toggle("on", side);
+  $("sideBtn").textContent = side ? "单个看" : "并列看";
+  fr.querySelectorAll(".vlab").forEach((l, i) => {
+    l.style.left = `calc(${i} * (100% + 8px) / ${n} + 10px)`;
+    const on = l.dataset.v === active;
+    l.classList.toggle("on", on);
+    l.textContent = l.dataset.label + (on ? "　♪ 正在听 · Enter 选它" : "");
+  });
+}
+function toggleSide() { side = !side; try { localStorage.setItem("film.side", side ? "1" : "0"); } catch (e) {} applySide(); }
+function renderVers() {
+  const vb = $("vers"); vb.textContent = "";
+  const p = pickOf(seg.id);
+  covers(seg).forEach((v, i) => {
+    const b = document.createElement("button"); b.className = "ver" + (v.id === active ? " watch" : ""); b.dataset.v = v.id;
+    b.title = (v.note || "（没有备注）") + "\n点一下切过去看；选它用右边的按钮或 Enter";
+    const top = document.createElement("span"); top.className = "top";
+    const k = document.createElement("kbd"); k.textContent = i + 1;
+    top.append(k, document.createTextNode(v.id));
+    if (p.pick === v.id) { const c = document.createElement("span"); c.className = "chosen" + (p.locked ? " lock" : ""); c.textContent = p.locked ? "锁定" : "已选"; top.append(c); }
+    const sm = document.createElement("small"); sm.textContent = v.note || (v.id === active ? "正在看" : "");
+    b.append(top, sm);
+    b.onclick = () => setActive(v.id);
+    vb.append(b);
+  });
+}
+function renderTags() {
+  const w = $("watchTag"), k = $("pickTag"), p = seg ? pickOf(seg.id) : {};
+  w.hidden = k.hidden = !active;
+  if (!active) return;
+  w.innerHTML = `正在看 <b></b>`; w.querySelector("b").textContent = active;
+  if (p.pick === active) { k.className = "tag " + (p.locked ? "lock" : "same"); k.textContent = p.locked ? "这段锁定的就是这版" : "这段选的就是这版"; }
+  else if (p.pick === "none") { k.className = "tag none"; k.textContent = "这段：都不要"; }
+  else if (p.pick) { k.className = "tag"; k.textContent = `这段${p.locked ? "锁定" : "选"}的是 ${p.pick}`; }
+  else { k.className = "tag none"; k.textContent = "这段还没选"; }
+}
+function openSeg(s, keepPlaying) {
+  const was = keepPlaying && active && vids[active] && !vids[active].paused;
+  const prev = active;
+  seg = s;
+  const fr = $("frame"); [...fr.querySelectorAll("video")].forEach(v => { v.pause(); v.removeAttribute("src"); v.load(); v.remove(); });
+  fr.querySelectorAll(".vlab").forEach(l => l.remove());
+  vids = {};
+  const list = covers(s);
+  $("empty").hidden = list.length > 0;
+  list.forEach((v, i) => {
+    const el = document.createElement("video");
+    el.onclick = () => { if (side) setActive(v.id); };
+    const lab = document.createElement("div"); lab.className = "vlab"; lab.dataset.v = v.id; lab.dataset.label = `${i + 1}  ${v.id}`;
+    fr.insertBefore(lab, $("watchTag"));
+    el.src = media(v.file); el.preload = "auto"; el.playsInline = true; el.muted = true; el.volume = vol; el._offset = v.offset;
+    el.addEventListener("loadedmetadata", () => {
+      try { el.currentTime = Math.max(s.t0 - v.offset, 0); } catch (e) {}
+      if (el.videoWidth && el.videoHeight) document.documentElement.style.setProperty("--ar", (el.videoWidth / el.videoHeight).toFixed(4));
+    });
+    fr.insertBefore(el, $("watchTag")); vids[v.id] = el;
+  });
+  const p = pickOf(s.id);
+  // 这段选过版本就放选中的那版；没选过才沿用上一段在看的版本，再没有就放最新的
+  const prefer = p.pick && vids[p.pick] ? p.pick : (prev && vids[prev] ? prev : (list.length ? list[list.length - 1].id : null));
+  active = null;
+  if (prefer) setActive(prefer); else { renderVers(); renderSide(); renderTags(); applySide(); }
+  $("t0").textContent = fmt(s.t0); $("t1").textContent = fmt(s.t1);
+  renderSummary(); renderStrip(); drawMarks(); drawClock();
+  if (was) playAll();
+}
+function step(d) { const i = S.segments.indexOf(seg) + d; if (i >= 0 && i < S.segments.length) { openSeg(S.segments[i], false); seek(S.segments[i].t0); } }
+function nextTodo() {
+  const n = S.segments.length, i0 = S.segments.indexOf(seg);
+  for (let k = 1; k <= n; k++) { const s = S.segments[(i0 + k) % n]; if (todo(s)) { openSeg(s, false); seek(s.t0); return; } }
+}
+
+// ---------------------------------------------------------------- 选：只有一个入口，选的就是正在看的那版
+function choose() {
+  const p = pickOf(seg.id);
+  if (!active || p.locked || p.pick === active) return;
+  p.pick = active; queue("picks", seg.id, { pick:p.pick, locked:false }); renderAll(); renderVers();
+}
+function chooseNone() {
+  const p = pickOf(seg.id); if (p.locked) return;
+  p.pick = p.pick === "none" ? "" : "none"; p.locked = false; queue("picks", seg.id, { pick:p.pick, locked:false }); renderAll(); renderVers();
+}
+function toggleLock() {
+  const p = pickOf(seg.id);
+  if (!p.pick || p.pick === "none") { $("save").textContent = "先选一版再锁定"; $("save").className = "err"; return; }
+  p.locked = !p.locked; queue("picks", seg.id, { locked:p.locked }); renderAll(); renderVers();
+}
+function renderSide() {
+  if (!seg) return;
+  const p = pickOf(seg.id), n = covers(seg).length;
+  $("segTitle").textContent = seg.id + (seg.name ? " · " + seg.name : "");
+  $("segMeta").textContent = `${fmt(seg.t0)}–${fmt(seg.t1)} · ${n} 个版本`;
+  const st = $("state");
+  if (p.locked) st.innerHTML = `已锁定 <b class="lock"></b>`;
+  else if (p.pick === "none") st.innerHTML = `<b class="none">都不要</b>，这段要重做`;
+  else if (p.pick) st.innerHTML = `选的是 <b class="pick"></b>，还没锁定`;
+  else st.innerHTML = `<b class="none">还没选</b>`;
+  const sb = st.querySelector("b.lock, b.pick"); if (sb) sb.textContent = p.pick;
+  const ch = $("choose");
+  if (!active) { ch.disabled = true; ch.textContent = "这段没有版本可选"; }
+  else if (p.locked) { ch.disabled = true; ch.textContent = `已锁定，要换先解锁`; }
+  else if (p.pick === active) { ch.disabled = true; ch.textContent = `已选正在看的 ${active}`; }
+  else { ch.disabled = false; ch.textContent = `选正在看的 ${active}`; }
+  ch.title = "Enter";
+  const nb = $("noneBtn"); nb.disabled = !!p.locked; nb.classList.toggle("no", true); nb.classList.toggle("on", p.pick === "none");
+  const lk = $("lock"); lk.disabled = !p.pick || p.pick === "none"; lk.classList.toggle("on", !!p.locked);
+  lk.textContent = p.locked ? "解锁" : "认可，锁定";
+  lk.title = "L";
+  $("clearPick").hidden = !p.pick || !!p.locked;
+  $("lockHint").textContent = p.locked ? "锁定后，之后的修改不会碰这段。" : p.pick && p.pick !== "none" ? "认可了就锁定：AI 之后改别的地方不会碰它。" : "没标的段落按「没认可」算，AI 会重做或再问你。";
+  $("planBox").hidden = !p.plan;
+  if (p.plan) {
+    $("plan").textContent = p.plan;
+    $("planLabel").textContent = asking(p) ? "AI 想这样做这段，对吗？" : (p.plan_ok === "yes" ? "AI 的打算（你说对）" : "AI 的打算（你说不对）");
+    $("planBox").classList.toggle("ask", asking(p));
+    $("planYes").classList.toggle("on", p.plan_ok === "yes"); $("planNo").classList.toggle("on", p.plan_ok === "no");
+    $("planFix").hidden = p.plan_ok !== "no"; $("planFix").value = p.plan_fix || "";
+  }
+  if (document.activeElement !== $("note")) $("note").value = p.note || "";
+  renderMarks();
+}
+
+// ---------------------------------------------------------------- 瞬间
+function renderMarks() {
+  const p = pickOf(seg.id), box = $("marks"); box.textContent = "";
+  (p.marks || []).forEach((m, i) => {
+    const row = document.createElement("div"); row.className = "mark";
+    const a = document.createElement("a"); a.textContent = m.v + " " + fmt(m.t); a.title = "跳过去看"; a.onclick = () => { if (vids[m.v]) setActive(m.v); seek(m.t); };
+    const inp = document.createElement("input"); inp.value = m.text || ""; inp.placeholder = "这一刻怎么样"; inp.oninput = () => { m.text = inp.value; queue("picks", seg.id, { marks:p.marks }); };
+    const x = document.createElement("b"); x.textContent = "×"; x.title = "删掉"; x.onclick = () => { p.marks.splice(i, 1); queue("picks", seg.id, { marks:p.marks }); renderMarks(); };
+    row.append(a, inp, x); box.append(row);
+  });
+  if (!(p.marks || []).length) { const d = document.createElement("div"); d.className = "hint"; d.textContent = "看到喜欢或不喜欢的瞬间，按 M 记下来"; box.append(d); }
+  drawMarks();
+}
+function drawMarks() {
+  const bar = $("bar"); [...bar.querySelectorAll("i")].forEach(x => x.remove());
+  if (!seg) return;
+  for (const m of pickOf(seg.id).marks || []) {
+    const i = document.createElement("i"); i.style.left = ((m.t - seg.t0) / (seg.t1 - seg.t0) * 100) + "%"; i.title = m.v + " " + fmt(m.t) + (m.text ? "：" + m.text : "");
+    i.onpointerdown = e => { e.stopPropagation(); if (vids[m.v]) setActive(m.v); seek(m.t); };
+    bar.append(i);
+  }
+}
+function addMark() {
+  if (!active) return;
+  const p = pickOf(seg.id); p.marks = p.marks || [];
+  p.marks.push({ v:active, t:+songT().toFixed(2), text:"" });
+  p.marks.sort((a, b) => a.t - b.t);
+  queue("picks", seg.id, { marks:p.marks }); renderMarks();
+  const idx = p.marks.findIndex(m => !m.text); const inputs = $("marks").querySelectorAll("input"); if (inputs[idx]) inputs[idx].focus();
+}
+
+// ---------------------------------------------------------------- 播放
+function playAll() { for (const k in vids) vids[k].play().catch(() => {}); $("play").textContent = "暂停"; }
+function pauseAll() { for (const k in vids) vids[k].pause(); $("play").textContent = "播放"; }
+function togglePlay() { if (active && vids[active] && !vids[active].paused) pauseAll(); else playAll(); }
+function drawClock() {
+  if (!seg) return;
+  const t = songT(), f = Math.min(100, Math.max(0, (t - seg.t0) / (seg.t1 - seg.t0) * 100));
+  $("clock").textContent = "歌的 " + fmt(t);
+  $("prog").style.width = f + "%"; $("head").style.left = f + "%";
+  drawStripHead(t);
+}
+function tick() {
+  if (seg && active && vids[active]) {
+    const v = vids[active], t = songT();
+    for (const k in vids) {
+      if (k === active || vids[k].seeking || v.seeking) continue;
+      const d = vids[k].currentTime + vids[k]._offset - t;
+      // 并列时两个画面都看得见：差得不多就用播放速度慢慢追（不跳帧），差太多才直接对齐
+      if (Math.abs(d) > (side ? 0.25 : 0.12)) { try { vids[k].currentTime = Math.max(t - vids[k]._offset, 0); } catch (e) {} vids[k].playbackRate = 1; }
+      else if (side && !v.paused) vids[k].playbackRate = Math.abs(d) > 0.02 ? (d > 0 ? 0.95 : 1.05) : 1;
+      else if (vids[k].playbackRate !== 1) vids[k].playbackRate = 1;
+    }
+    if (t >= seg.t1 - 0.01 && !v.paused) {
+      const i = S.segments.indexOf(seg);
+      if (after === "chain" && i + 1 < S.segments.length) { openSeg(S.segments[i + 1], true); seek(S.segments[i + 1].t0); }
+      else if (after === "loop") seek(seg.t0);
+      else pauseAll();
+    }
+    drawClock();
+  }
+  requestAnimationFrame(tick);
+}
+// 进度条：按下就跳，按住拖动
+function barSeek(e) { const r = $("bar").getBoundingClientRect(); seek(seg.t0 + Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (seg.t1 - seg.t0)); }
+$("bar").onpointerdown = e => { if (!seg) return; $("bar").setPointerCapture(e.pointerId); barSeek(e); $("bar").onpointermove = barSeek; };
+$("bar").onpointerup = e => { $("bar").onpointermove = null; };
+
+// ---------------------------------------------------------------- 靶子
+function renderTargets() {
+  const box = $("targets"); box.textContent = "";
+  if (!S.targets.length) { const d = document.createElement("div"); d.className = "hint"; d.textContent = "还没有靶子。让 AI 用 film.py target add 参考.mp4 收几支现成的片"; box.append(d); return; }
+  for (const t of S.targets) {
+    const c = document.createElement("div"); c.className = "tcard";
+    const v = document.createElement("video"); v.src = media(t.file); v.controls = true; v.preload = "metadata"; v.muted = MUTE; v.volume = vol;
+    const n = document.createElement("div"); n.className = "hint"; n.style.margin = "6px 0"; n.textContent = t.id + (t.note ? "：" + t.note : "");
+    const row = document.createElement("div"); row.className = "btns";
+    const set = x => { t.verdict = t.verdict === x ? "" : x; queue("targets", t.id, { verdict:t.verdict }); y.classList.toggle("on", t.verdict === "yes"); no.classList.toggle("on", t.verdict === "no"); };
+    const y = document.createElement("button"); y.className = "ok" + (t.verdict === "yes" ? " on" : ""); y.textContent = "就是这种"; y.onclick = () => set("yes");
+    const no = document.createElement("button"); no.className = "bad" + (t.verdict === "no" ? " on" : ""); no.textContent = "不是"; no.onclick = () => set("no");
+    row.append(y, no);
+    const ta = document.createElement("textarea"); ta.style.marginTop = "8px"; ta.placeholder = "要的是哪一点，不要的是哪一点"; ta.value = t.user_note || ""; ta.oninput = () => { t.user_note = ta.value; queue("targets", t.id, { user_note:ta.value }); };
+    c.append(v, n, row, ta); box.append(c);
+  }
+}
+function tab(which) {
+  $("tabSeg").classList.toggle("on", which === "seg"); $("tabTgt").classList.toggle("on", which === "tgt");
+  $("segView").hidden = which !== "seg"; $("tgtView").hidden = which !== "tgt";
+  $("summary").hidden = $("nextTodo").hidden = which !== "seg";
+  if (which === "tgt") { pauseAll(); renderTargets(); }
+}
+
+// ---------------------------------------------------------------- 接线
+$("tabSeg").onclick = () => tab("seg"); $("tabTgt").onclick = () => tab("tgt");
+$("play").onclick = togglePlay; $("sideBtn").onclick = toggleSide; $("markBtn").onclick = addMark; $("nextTodo").onclick = nextTodo;
+$("choose").onclick = choose; $("noneBtn").onclick = chooseNone; $("lock").onclick = toggleLock;
+$("clearPick").onclick = () => { const p = pickOf(seg.id); if (p.locked) return; p.pick = ""; queue("picks", seg.id, { pick:"", locked:false }); renderAll(); renderVers(); };
+$("vol").oninput = () => setVol($("vol").value / 100);
+[...$("after").children].forEach(b => b.onclick = () => { after = b.dataset.m; [...$("after").children].forEach(x => x.classList.toggle("on", x === b)); });
+$("note").oninput = () => { pickOf(seg.id).note = $("note").value; queue("picks", seg.id, { note:$("note").value }); };
+$("overall").oninput = () => { S.overall = $("overall").value; queue("overall", null, S.overall); };
+$("planYes").onclick = () => { const p = pickOf(seg.id); p.plan_ok = p.plan_ok === "yes" ? "" : "yes"; queue("picks", seg.id, { plan_ok:p.plan_ok }); renderAll(); };
+$("planNo").onclick = () => { const p = pickOf(seg.id); p.plan_ok = p.plan_ok === "no" ? "" : "no"; queue("picks", seg.id, { plan_ok:p.plan_ok }); renderAll(); if (p.plan_ok === "no") $("planFix").focus(); };
+$("planFix").oninput = () => { const p = pickOf(seg.id); p.plan_fix = $("planFix").value; queue("picks", seg.id, { plan_fix:p.plan_fix }); };
+document.addEventListener("keydown", e => {
+  if (/TEXTAREA|INPUT/.test(e.target.tagName) || !$("tgtView").hidden || !seg || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key;
+  if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+  else if (k === "Enter") { e.preventDefault(); choose(); }
+  else if (k === "l" || k === "L") { e.preventDefault(); toggleLock(); }
+  else if (k === "n" || k === "N") { e.preventDefault(); nextTodo(); }
+  else if (k === "[") { e.preventDefault(); step(-1); }
+  else if (k === "]") { e.preventDefault(); step(1); }
+  else if (k === "m" || k === "M") { e.preventDefault(); addMark(); }
+  else if (k === "v" || k === "V") { e.preventDefault(); toggleSide(); }
+  else if (k === "ArrowLeft") { e.preventDefault(); seek(Math.max(seg.t0, songT() - 1)); }
+  else if (k === "ArrowRight") { e.preventDefault(); seek(Math.min(seg.t1 - 0.05, songT() + 1)); }
+  else if (k === "ArrowUp") { e.preventDefault(); setVol(Math.round(vol * 10 + 1) / 10); }
+  else if (k === "ArrowDown") { e.preventDefault(); setVol(Math.round(vol * 10 - 1) / 10); }
+  else if (/^[1-9]$/.test(k)) { const v = covers(seg)[+k - 1]; if (v) setActive(v.id); }
+});
+(async () => {
+  S = await (await fetch("/api/state", { cache:"no-store" })).json();
+  S.picks = S.picks || {};
+  $("overall").value = S.overall || "";
+  applyVol();
+  if (S.segments.length) openSeg(S.segments.find(todo) || S.segments[0], false);   // 先打开第一段要你定的
+  if (!S.versions.length && S.targets.length) tab("tgt");
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

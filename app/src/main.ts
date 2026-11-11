@@ -1,0 +1,256 @@
+// Entry: preview player (default) or export mode (?export=1, driven by scripts/render.ts).
+import { Engine, SONG_DIR, type AdaptiveSampling } from './engine/engine';
+import { glyphReport, installGlyphCheck } from './engine/glyphcheck';
+import { PW, PH, SCALE } from './engine/gl';
+import { makeTimeline } from './timeline';
+import { VIDEO_START, AUDIO, W, H } from './config';
+import { loadTracks } from './engine/tracks';
+import type { SceneClass } from './engine/scene';
+
+const params = new URLSearchParams(location.search);
+const EXPORT = params.has('export');
+const ONLY = params.get('only'); // comma-separated scene ids to load (faster stills)
+// ?span=a,b (render.ts video --from a --to b): load only the scenes that overlap song seconds a..b. Every scene's
+// canvases and render targets are made in its init, so a chunk of a parallel export would otherwise hold the whole
+// film's (at 4K ~1 GB of VRAM per browser, and the VRAM caps how many browsers run at once)
+const SPAN = params.get('span')?.split(',').map(Number);
+const FROM = params.get('t') ? parseFloat(params.get('t')!) : VIDEO_START;
+
+const canvas = document.getElementById('c') as HTMLCanvasElement;
+// physical size: W x H (src/config.ts) times ?scale= (the page CSS keeps showing it at W x H)
+canvas.width = PW;
+canvas.height = PH;
+canvas.style.aspectRatio = `${W} / ${H}`;
+
+// ?swap=hook:hook_ink,drop:drop_b (render.ts --query swap=…): the entry 'hook' renders scenes/hook_ink.ts instead of its
+// own scene, same window and params. Parallel candidates: each sub-agent writes its own scene file and renders it in
+// the entry's place, nobody edits timeline.ts.
+const SWAP = new Map((params.get('swap') ?? '').split(',').filter((s) => s.includes(':')).map((s) => s.split(':', 2) as [string, string]));
+const sceneModules = import.meta.glob<{ default: SceneClass }>(['./scenes/*.ts', './library/scenes/*.ts']);
+const engine = new Engine(canvas, (ly, au) => makeTimeline(ly, au).map((e) => {
+  const file = SWAP.get(e.id);
+  if (!file) return e;
+  const m = sceneModules[`./scenes/${file}.ts`] ?? sceneModules[`./library/scenes/${file}.ts`];
+  return { ...e, load: m ?? (() => Promise.reject(new Error(`?swap: scene module not found: scenes/${file}.ts`))) };
+}));
+
+declare global {
+  interface Window { __pdoom: any }
+}
+
+let TIMELINE: typeof engine.timeline = [];
+
+async function boot() {
+  // ?glyphcheck (render.ts glyphs): note every character drawn in a font that lacks it, from the scenes' init on
+  if (params.has('glyphcheck')) installGlyphCheck();
+  const onlySet = ONLY ? new Set(ONLY.split(',')) : null;
+  // (a 0.5 s margin: a frame's sub-frames reach half a shutter around it)
+  const inSpan = SPAN?.length === 2 ? (e: { start: number; end: number }) => e.end > SPAN[0]! - 0.5 && e.start < SPAN[1]! + 0.5 : null;
+  // dragged keyframes (app/src/tracks.json, engine/tracks.ts): the preview and every export read the same file
+  await loadTracks();
+  await engine.init(onlySet || inSpan ? (e) => (!onlySet || onlySet.has(e.id)) && (!inSpan || inSpan(e)) : undefined);
+  TIMELINE = engine.timeline;
+  if (EXPORT) setupExport();
+  else setupPlayer();
+}
+
+// ------------------------------------------------------------------ export API
+function setupExport() {
+  document.body.classList.add('export');
+  canvas.style.width = `${W}px`;
+  canvas.style.height = `${H}px`;
+  window.__pdoom = {
+    engine,
+    duration: engine.duration,
+    errors: engine.errors,
+    /** Output size in px (W x H times scale); stream() sends frames of width*height*4 bytes. */
+    scale: SCALE,
+    width: PW,
+    height: PH,
+    // scenes only: effect clips (TimelineEntry.effects) are not cuts
+    timeline: TIMELINE.filter((e) => e.load).map(({ id, start, end }) => ({ id, start, end })),
+    /** Characters drawn so far that no listed font has (?glyphcheck; render.ts glyphs). */
+    glyphs() { return glyphReport(); },
+    /** Every scene's registered cues plus the timeline cuts (render.ts cues → tools/qa/cuecheck.py). */
+    cues() { return engine.cues(); },
+    /**
+     * The scenes' draggable keyframe tracks (kfe) as graph images with beats and cuts, plus a report per track
+     * (render.ts curves). Renders from..to every `step` first, so every track used in that range has been seen.
+     */
+    async curves(from: number, to: number, step: number) {
+      for (let t = from; t < to; t += step) { const p = engine.prepare(t, 1 / 60); if (p) await p; engine.render(t, 1 / 60, false); }
+      const { curveSheets } = await import('./editor/curvesheet');
+      return curveSheets({ timeline: TIMELINE, beats: engine.audio.beats, downbeats: engine.audio.downbeats });
+    },
+    /** Tracked elements' screen positions for a run of frames (render.ts track → tools/qa/trackcheck.py). */
+    track(from: number, to: number, fps: number) {
+      const frames: { t: number; p: Record<string, unknown> }[] = [];
+      for (let i = 0; ; i++) { const t = from + i / fps; if (t >= to - 1e-9) break; frames.push({ t, p: engine.track(t) }); }
+      return { fps, frames, beats: engine.audio.beats, downbeats: engine.audio.downbeats };
+    },
+    /**
+     * Render a single frame at t (seeks as needed). Returns the sub-frame count, or a promise of it when a scene had
+     * to load something first (Scene.prepare: await it; page.evaluate does).
+     */
+    still(t: number, samples: number | AdaptiveSampling = 1, shutter = 0.5) {
+      const go = () => engine.render(t, 1 / 60, true, samples, shutter);
+      const ready = engine.prepare(t, 1 / 60, samples, shutter);
+      return ready ? ready.then(go) : go();
+    },
+    /** The last rendered frame as a full-resolution (PW x PH) PNG, base64 (for stills at scale > 1). */
+    async png() {
+      const px = await engine.readPixelsAsync(), row = PW * 4;
+      const img = new ImageData(PW, PH);
+      for (let y = 0; y < PH; y++) img.data.set(px.subarray((PH - 1 - y) * row, (PH - y) * row), y * row); // bottom-up -> top-down
+      const oc = new OffscreenCanvas(PW, PH);
+      oc.getContext('2d')!.putImageData(img, 0, 0);
+      const b = new Uint8Array(await (await oc.convertToBlob({ type: 'image/png' })).arrayBuffer());
+      let s = '';
+      for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+      return btoa(s);
+    },
+    /**
+     * Render [from, to) at fps and stream raw RGBA frames (bottom-up) over a WebSocket.
+     * Returns when all frames were sent, with a histogram of sub-frames per frame. With `inflight`, the
+     * receiver acknowledges each frame it has handed on (a text message with its running count) and at
+     * most `inflight` frames are unacknowledged:
+     * backpressure from the encoder, so a slow encode (4K) cannot pile frames up in the receiver's memory.
+     */
+    async stream(opts: { from: number; to: number; fps: number; ws: string; samples?: number | AdaptiveSampling; shutter?: number; inflight?: number }) {
+      const ws = new WebSocket(opts.ws);
+      ws.binaryType = 'arraybuffer';
+      let acked = 0;
+      ws.onmessage = (e) => { if (typeof e.data === 'string') acked = Math.max(acked, +e.data || 0); };
+      await new Promise<void>((res, rej) => { ws.onopen = () => res(); ws.onerror = (e) => rej(e); });
+      const dt = 1 / opts.fps;
+      const n0 = Math.round(opts.from * opts.fps), n1 = Math.round(opts.to * opts.fps);
+      const buf = new Uint8Array(PW * PH * 4);
+      // warm-up: render one frame before the range so the first frame is sequential for stateful scenes
+      const S = opts.samples ?? 1, SH = opts.shutter ?? 0.5;
+      // (adaptive sampling only runs stateless scenes: one sample is enough for the warm-up)
+      if (n0 > 0) {
+        const S0 = typeof S === 'number' ? S : 1;
+        await engine.prepare((n0 - 1) * dt, dt, S0, SH);
+        engine.render((n0 - 1) * dt, dt, false, S0, SH);
+      }
+      const used: Record<number, number> = {}; // sub-frames per frame -> frames
+      for (let n = n0; n < n1; n++) {
+        // what this frame needs (Scene.prepare: plates are loaded frame by frame), then start on the next frame's
+        // while this one renders and reads back
+        await engine.prepare(n * dt, dt, S, SH);
+        if (n + 1 < n1) void engine.prepare((n + 1) * dt, dt, S, SH);
+        const k = engine.render(n * dt, dt, false, S, SH);
+        used[k] = (used[k] ?? 0) + 1;
+        await engine.readPixelsAsync(buf);
+        if (opts.inflight) while (n - n0 - acked >= opts.inflight) await new Promise((r) => setTimeout(r, 2));
+        while (ws.bufferedAmount > 64 * 1024 * 1024) await new Promise((r) => setTimeout(r, 2));
+        ws.send(buf);
+        if (n % 30 === 0) await new Promise((r) => setTimeout(r, 0)); // let the socket flush
+      }
+      while (ws.bufferedAmount > 0) await new Promise((r) => setTimeout(r, 5));
+      ws.close();
+      return used;
+    },
+  };
+  window.__pdoom.ready = true;
+}
+
+// ------------------------------------------------------------------ preview player
+function setupPlayer() {
+  const audio = new Audio(SONG_DIR ? `${SONG_DIR.replace(/\/$/, '')}/song.wav` : AUDIO);
+  audio.preload = 'auto';
+  const ui = document.getElementById('ui')!;
+  const scrub = document.getElementById('scrub') as HTMLInputElement;
+  const info = document.getElementById('info')!;
+  const marks = document.getElementById('marks')!;
+  const errs = document.getElementById('errs')!;
+  scrub.max = String(engine.duration);
+  scrub.step = '0.001';
+  if (engine.errors.length) { errs.textContent = engine.errors.join('\n\n'); errs.style.display = 'block'; }
+
+  for (const e of TIMELINE) {
+    const m = document.createElement('div');
+    m.className = 'mark';
+    m.style.left = `${(e.start / engine.duration) * 100}%`;
+    m.style.width = `${((e.end - e.start) / engine.duration) * 100}%`;
+    m.title = `${e.id} ${e.start.toFixed(2)}–${e.end.toFixed(2)}`;
+    m.textContent = e.id;
+    m.onclick = () => seek(e.start);
+    marks.appendChild(m);
+  }
+
+  let t = FROM;
+  let curves: { toggle(): void; frame(): void } | null = null;
+  let playing = false;
+  let loop: [number, number] | null = null;
+  let lastAudioT = 0, lastPerf = 0;
+  const seek = (x: number) => { t = Math.max(0, Math.min(engine.duration - 0.001, x)); audio.currentTime = t; };
+  seek(t);
+
+  const toggle = () => { playing = !playing; if (playing) { audio.currentTime = t; audio.play(); } else audio.pause(); };
+  canvas.onclick = toggle;
+  scrub.oninput = () => seek(parseFloat(scrub.value));
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === ' ') { ev.preventDefault(); toggle(); }
+    if (ev.key === 'ArrowRight') seek(t + (ev.shiftKey ? 5 : 1));
+    if (ev.key === 'ArrowLeft') seek(t - (ev.shiftKey ? 5 : 1));
+    if (ev.key === '.') seek(t + 1 / 60);
+    if (ev.key === ',') seek(t - 1 / 60);
+    if (ev.key === 'l') {
+      const e = TIMELINE.find((x) => t >= x.start && t < x.end);
+      loop = loop ? null : e ? [e.start, e.end] : null;
+    }
+    if (ev.key === 'h') ui.classList.toggle('hidden');
+    // G: the curve editor (src/editor/curves.ts), loaded on first use
+    if (ev.key === 'g' || ev.key === 'G') {
+      if (!curves) void import('./editor/curves').then(({ createCurveEditor }) => {
+        curves ??= createCurveEditor({ time: () => t, seek, timeline: TIMELINE, beats: engine.audio.beats, downbeats: engine.audio.downbeats });
+        curves.toggle();
+      });
+      else curves.toggle();
+    }
+    if (ev.key === ']') { const e = TIMELINE.find((x) => x.start > t + 0.01); if (e) seek(e.start); }
+    if (ev.key === '[') { const es = TIMELINE.filter((x) => x.start < t - 0.3); const e = es[es.length - 1]; if (e) seek(e.start); }
+  });
+
+  let frames = 0, fpsT = performance.now(), fps = 0;
+  const tick = () => {
+    if (playing) {
+      // smooth the coarse audio clock with performance.now()
+      const now = performance.now();
+      if (audio.currentTime !== lastAudioT) { lastAudioT = audio.currentTime; lastPerf = now; }
+      t = lastAudioT + (audio.paused ? 0 : (now - lastPerf) / 1000);
+      if (loop && t >= loop[1]) seek(loop[0]);
+      if (audio.ended) playing = false;
+    }
+    // scenes that load per frame (Scene.prepare) start loading now and show what they have until it arrives
+    void engine.prepare(t, 1 / 60);
+    engine.render(t, 1 / 60);
+    curves?.frame();
+    scrub.value = String(t);
+    frames++;
+    const now = performance.now();
+    if (now - fpsT > 500) { fps = (frames * 1000) / (now - fpsT); frames = 0; fpsT = now; }
+    const e = TIMELINE.find((x) => t >= x.start && t < x.end);
+    const l = engine.lyrics.lineAt(t);
+    info.textContent = `song ${t.toFixed(2)}s  video ${(t - VIDEO_START).toFixed(2)}s  bar ${engine.audio.barAt(t).toFixed(2)}  ${engine.audio.bpmAt(t).toFixed(1)} BPM  [${e?.id ?? '—'}]  ${fps.toFixed(0)}fps   ${l ? `line ${l.i} (${[...l.text].length} chars)` : ''}${loop ? '  LOOP' : ''}`;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+
+  // Vite HMR: re-instantiate scenes whose module changed
+  if (import.meta.hot) {
+    import.meta.hot.on('vite:afterUpdate', (payload: any) => {
+      for (const u of payload.updates ?? []) {
+        const m = /scenes\/([\w-]+)\.ts/.exec(u.path ?? '');
+        if (m) for (const e of TIMELINE) if (e.id === m[1] || (e as any).file === m[1]) engine.reload(e.id);
+      }
+    });
+  }
+}
+
+boot().catch((e) => {
+  console.error(e);
+  document.body.insertAdjacentHTML('beforeend', `<pre style="color:#f55;position:fixed;top:0;left:0">${String(e?.stack ?? e)}</pre>`);
+  window.__pdoom = { error: String(e?.stack ?? e) };
+});

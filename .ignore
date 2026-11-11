@@ -1,0 +1,8 @@
+# 搜索（ripgrep：Claude Code 的 Grep / Glob、编辑器的全局搜索）跳过这些；git 照常跟踪，直接按路径读不受影响。
+# shaders 库原样收录的 364 个源文件，占全部文件一半多：查效果看 app/src/library/sfx组件.md、sfx用法.md，
+# 或 vendor/shaders 的 CATALOG.md / VENDOR.md（md 仍能搜到）；真要搜源码用 rg --no-ignore
+app/src/library/vendor/shaders/**/*.ts
+app/src/library/engine/mmd/*.js
+# 数据：大 JSON 一行很长；歌词不进对话（lyrics.json、lyrics.src.lrc 只按行号和时间处理）
+data/
+app/bun.lock
