@@ -111,8 +111,10 @@ def main():
     write_new(dst / "CLAUDE.md", claude_md(dst.resolve().name))
     write_new(dst / "docs" / "TREATMENT.md", treatment(dst.resolve().name))
     write_new(dst / "README.md", f"# {dst.resolve().name}\n\n方向和人的决定在 `docs/TREATMENT.md`。\n")
-    if not (dst / "LICENSE.engine").exists():
+    if not (dst / "LICENSE.engine").exists():  # 引擎的许可：GPL-3.0 全文；分部分的说明和第三方 MIT 声明在 NOTICE.engine.md、LICENSES.engine/
         shutil.copy(BASE / "LICENSE", dst / "LICENSE.engine")
+        shutil.copy(BASE / "NOTICE.md", dst / "NOTICE.engine.md")
+        shutil.copytree(BASE / "LICENSES", dst / "LICENSES.engine", dirs_exist_ok=True)
     if not (dst / ".gitignore").exists():
         shutil.copy(BASE / ".gitignore", dst / ".gitignore")
         with open(dst / ".gitignore", "a", encoding="utf-8") as f:
