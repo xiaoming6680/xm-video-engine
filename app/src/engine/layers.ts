@@ -85,8 +85,8 @@
 // 坐标：逻辑像素，y 向下，z 往屏幕里；角度顺时针为正。2D 图层不看摄像机；3D 图层在 z = 0、默认摄像机下和 2D 一样大。
 // 性能：没有效果、蒙版的 Canvas / 纹理 / 纯色层直接一次合成；有效果的层多一张图层大小的渲染目标和每个效果的 pass。
 import * as THREE from 'three';
-import { FSPass, Layer2D, SCALE, W as CW, H as CH, clearRT, makeRT, rtScale, type BlendMode, type Compositor, type MatteMode } from './gl';
-import { Fx, effectPad, linear, type Edge, type Effect, type EffectList } from './effects';
+import { FSPass, Layer2D, SCALE, W as CW, H as CH, clearRT, makeRT, rtScale, setRtScale, type BlendMode, type Compositor, type Lighting, type LightGPU, type MatteMode, type ShadowMap } from './gl';
+import { Fx, effectPad, linear, shiftEffect, type Edge, type Effect, type EffectList } from './effects';
 import { Path } from './shape';
 import { shutterT } from './util';
 import { Space, cameraPose, defaultZoom, projectComp, type Camera, type SpaceOpts } from './space';
@@ -157,6 +157,42 @@ export interface Layer {
   cache?: boolean | 'frame' | 'static';
   smear?: number;
   extrude?: Extrude;
+  /** How a 3D layer takes the comp's lights (CompOpts.lights): AE's Material Options. */
+  material?: Material;
+}
+
+/**
+ * A light (AE's light layer), comp px: type 'ambient' | 'parallel' | 'point' | 'spot'; color '#fff'; intensity 1;
+ * position (default up-left in front of the comp) and target (point of interest, default the comp's centre at z 0);
+ * cone 90 / feather 0.5 (spot); falloff 'none' | 'smooth' | 'inverse' with radius 500 / distance 500;
+ * shadows (the layers with material.castsShadows cast them; a point light renders six cube faces), shadowDarkness 1,
+ * shadowDiffusion 0 (px), shadowSize (the map's px: 2048, a point light's faces 1024).
+ */
+export interface Light {
+  type: 'ambient' | 'parallel' | 'point' | 'spot';
+  color?: string;
+  intensity?: number;
+  position?: Vec;
+  target?: Vec;
+  cone?: number;
+  feather?: number;
+  falloff?: 'none' | 'smooth' | 'inverse';
+  radius?: number;
+  distance?: number;
+  shadows?: boolean;
+  shadowDarkness?: number;
+  shadowDiffusion?: number;
+  shadowSize?: number;
+}
+/** AE's Material Options: acceptsLights true, castsShadows false, acceptsShadows true; ambient 1, diffuse 1, specular 0, shininess 0.3. */
+export interface Material {
+  acceptsLights?: boolean;
+  castsShadows?: boolean;
+  acceptsShadows?: boolean;
+  ambient?: number;
+  diffuse?: number;
+  specular?: number;
+  shininess?: number;
 }
 
 export interface Extrude { depth?: number; offset?: readonly [number, number]; color?: string; colorBack?: string; steps?: number }
@@ -184,6 +220,8 @@ export interface CompOpts {
   camera?: Prop<Camera>;
   motionBlur?: boolean | number;
   sort3D?: boolean;
+  /** Lights for the 3D layers (AE's light layers): a list, or (t) => a list. */
+  lights?: Prop<readonly Light[]>;
   /** How comp px map to three's metres (Layer.three, comp.space). */
   space?: Space | SpaceOpts;
   /** 3D layers hide each other per pixel (default true); false: whole layers by their centre's distance only. */
@@ -289,6 +327,23 @@ interface Eval {
   depth: number;
 }
 
+/** The axes (rows: right, down, forward) of a light camera looking along f. */
+function cameraRows(f: THREE.Vector3): number[] {
+  let right = new THREE.Vector3(0, 1, 0).cross(f);
+  if (right.lengthSq() < 1e-9) right = new THREE.Vector3(1, 0, 0).cross(f);
+  right.normalize();
+  const down = f.clone().cross(right).normalize();
+  return [right.x, right.y, right.z, down.x, down.y, down.z, f.x, f.y, f.z];
+}
+/** A point light's cube face i (+x −x +y −y +z −z) as rows right, down, forward: the rule gl.ts cubeFace() uses. */
+function cubeFace(i: number): number[] {
+  const f = ([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const)[i]!;
+  const d0 = Math.abs(f[1]) > 0.5 ? [0, 0, 1] : [0, 1, 0];
+  const cr = (a: readonly number[], b: readonly number[]) => [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!];
+  const r = cr(d0, f), dn = cr(f, r);
+  return [...r, ...dn, ...f];
+}
+
 export class Comp {
   readonly w: number;
   readonly h: number;
@@ -305,6 +360,11 @@ export class Comp {
   private occPass: FSPass | null = null;
   private occClear: FSPass | null = null;
   private curOut: THREE.WebGLRenderTarget | null = null;
+  /** This render's lights (resolved) and shadow maps; set while the shadow maps are drawn. */
+  private lit: { lights: LightGPU[]; ambient: number[]; shadows: ShadowMap[]; cam: number[] } | null = null;
+  private shadowRTs: THREE.WebGLRenderTarget[] = [];
+  private shadowClear: FSPass | null = null;
+  private shadowing = false;
   /** The camera of the render in progress (faceCamera). */
   private camNow: Camera = {};
   /** Set while this comp's layers are drawn collapsed into another comp (Layer.collapse). */
@@ -394,6 +454,8 @@ export class Comp {
       }
     }
 
+    this.lit = this.prepareLights(songT, map, items, cam);
+
     for (const it of items) {
       const e = it.e, l = e.l, C = it.owner;
       if (!e.H && !l.adjustment) continue;
@@ -423,6 +485,7 @@ export class Comp {
     }
     this.occ = null;
     this.curOut = null;
+    this.lit = null;
   }
 
   /**
@@ -711,10 +774,9 @@ export class Comp {
     if (!(w > 0 && h > 0) || !e.H) return;
     if (l.smear && l.smear > 0) effects = [...effects, ...this.smearEffects(l, map(shutterT(songT, 0)) + off, e.size, cam)];
     const pxs = SCALE * (l.res ?? 1);
-    const pad = Math.ceil(effects.reduce((s, x) => s + effectPad(x), 0));
-    // points the effects take in layer px (radial centres, transform anchors) move with the content into the padded buffer
-    if (pad > 0) effects = effects.map((x) => x.type === 'radialBlur' && x.center ? { ...x, center: [x.center[0] + pad, x.center[1] + pad] as [number, number] }
-      : x.type === 'transform' && x.anchor ? { ...x, anchor: [x.anchor[0] + pad, x.anchor[1] + pad] as [number, number] } : x);
+    const pad = Math.ceil(effects.reduce((s, x) => s + effectPad(x, [w, h]), 0));
+    // points the effects take in layer px (centres, anchors, a flare's source) move with the content into the padded buffer
+    if (pad > 0) effects = effects.map((x) => shiftEffect(x, pad, pad));
     const st = this.srcTime(l, tf);
     const slot = `${e.key}@${off}`;
     const ck = cacheMode ? `${cacheMode === 'static' ? 'static' : tf}|${st}|${w}x${h}@${pxs}|${pad}|${JSON.stringify(effects, (_k, v) => (v instanceof THREE.Texture ? v.uuid : v))}` : null;
@@ -724,7 +786,8 @@ export class Comp {
       return [H[0]!, H[1]!, H[2]! - p * (H[0]! + H[1]!), H[3]!, H[4]!, H[5]! - p * (H[3]! + H[4]!), H[6]!, H[7]!, H[8]! - p * (H[6]! + H[7]!)];
     };
     const place = (tex: THREE.Texture, premult: boolean, bw: number, bh: number, p: number) => {
-      comp.draw(r, tex, target, { mode, opacity, tint, premult, matte: mt, matteMode, mattePremult: false, transform: { matrix: matrix(p), size: [bw, bh], depthMatrix: e.Hz }, depth });
+      if (R.shadowing) { comp.drawDepth(r, tex, target, { premult, opacity, transform: { matrix: matrix(p), size: [bw, bh] } }); return; }
+      comp.draw(r, tex, target, { mode, opacity, tint, premult, matte: mt, matteMode, mattePremult: false, transform: { matrix: matrix(p), size: [bw, bh], depthMatrix: e.Hz }, depth, light: this.lightFor(e, p) });
       writeZ(tex, premult, matrix(p), [bw, bh]);
     };
 
@@ -740,8 +803,9 @@ export class Comp {
         return place(cv.upload(), true, w, h, 0);
       }
       if (l.solid) {
+        if (R.shadowing) { comp.drawDepth(r, whiteTex(), target, { premult: true, opacity, transform: { matrix: matrix(0), size: [w, h] } }); return; }
         const c = linear(l.solid), k = tint ?? [1, 1, 1];
-        comp.draw(r, whiteTex(), target, { mode, opacity, tint: [c[0] * k[0], c[1] * k[1], c[2] * k[2]], matte: mt, matteMode, mattePremult: false, transform: { matrix: matrix(0), size: [w, h], depthMatrix: e.Hz }, depth });
+        comp.draw(r, whiteTex(), target, { mode, opacity, tint: [c[0] * k[0], c[1] * k[1], c[2] * k[2]], matte: mt, matteMode, mattePremult: false, transform: { matrix: matrix(0), size: [w, h], depthMatrix: e.Hz }, depth, light: this.lightFor(e, 0) });
         return writeZ(whiteTex(), true, matrix(0), [w, h]);
       }
       const tex = this.sourceTexture(l, tf, st);
@@ -811,7 +875,7 @@ export class Comp {
       comp.draw(r, buf.texture, c.rt, { mode: 'replace', premult: false });
       c.key = ck; c.used = this.tick;
     }
-    if (l.extrude) this.drawExtrude(e, buf, bw, bh, pad, pxs, target, { mode, opacity, mt, matteMode, depth, writeZ }, cam);
+    if (l.extrude && !R.shadowing) this.drawExtrude(e, buf, bw, bh, pad, pxs, target, { mode, opacity, mt, matteMode, depth, writeZ }, cam);
     else place(buf.texture, false, bw, bh, pad);
     this.fx.release(buf);
   }
@@ -913,6 +977,104 @@ export class Comp {
    * This render's occluder (depth along the view axis in comp px, nearest kept; the output's size), cleared to far the
    * first time it is asked for in a render.
    */
+  /** The comp's lights at this frame, resolved for the shaders, with their shadow maps drawn (null: no lights). */
+  private prepareLights(songT: number, map: (s: number) => number, items: Item[], cam: Camera) {
+    const ls = ev(this.o.lights, map(shutterT(songT, 1)), [] as readonly Light[]);
+    if (!ls.length) return null;
+    const amb = [0, 0, 0], lights: LightGPU[] = [], shadows: ShadowMap[] = [];
+    for (const L of ls) {
+      const col = linear(L.color ?? '#ffffff'), k = L.intensity ?? 1;
+      if (L.type === 'ambient') { amb[0] += col[0] * k; amb[1] += col[1] * k; amb[2] += col[2] * k; continue; }
+      if (lights.length >= 4) { this.warn('more than 4 lights (not counting ambient): the rest are ignored'); continue; }
+      const P = new THREE.Vector3(L.position?.[0] ?? this.w / 2 - 600, L.position?.[1] ?? this.h / 2 - 500, L.position?.[2] ?? -900);
+      const T = new THREE.Vector3(L.target?.[0] ?? this.w / 2, L.target?.[1] ?? this.h / 2, L.target?.[2] ?? 0);
+      const d = T.clone().sub(P);
+      if (d.lengthSq() < 1e-9) d.set(0, 0, 1);
+      d.normalize();
+      const half = ((L.cone ?? 90) * DEG) / 2, inner = half * (1 - Math.min(1, Math.max(0, L.feather ?? 0.5)));
+      const g: LightGPU = {
+        type: L.type === 'parallel' ? 1 : L.type === 'spot' ? 3 : 2, pos: [P.x, P.y, P.z], dir: [d.x, d.y, d.z],
+        color: [col[0] * k, col[1] * k, col[2] * k], cosIn: Math.cos(inner), cosOut: Math.cos(half),
+        falloff: L.falloff === 'smooth' ? 1 : L.falloff === 'inverse' ? 2 : 0, radius: L.radius ?? 500, distance: L.distance ?? 500,
+      };
+      if (L.shadows && shadows.length >= 2) this.warn('only two lights cast shadows: the rest light without');
+      else if (L.shadows) { g.shadow = shadows.length; shadows.push(this.shadowMap(L, g, T, items, songT, cam, shadows.length)); }
+      lights.push(g);
+    }
+    const { P } = cameraPose(cam, this.w, this.h);
+    return { lights, ambient: amb, shadows, cam: [P.x, P.y, P.z] };
+  }
+
+  /**
+   * A light's shadow map: the casting 3D layers' depth along a light camera (a spot: at the light, its cone; a parallel
+   * light: far back along its direction, nearly orthographic, covering the comp and around it; a point light: six 90°
+   * cameras, one per cube face, in a 3 x 2 atlas — the faces' axes as in gl.ts cubeFace()).
+   */
+  private shadowMap(L: Light, g: LightGPU, T: THREE.Vector3, items: Item[], songT: number, cam: Camera, k: number): ShadowMap {
+    const r = this.host.renderer, cube = g.type === 2;
+    const S = Math.max(256, Math.round(L.shadowSize ?? (cube ? 1024 : 2048)));
+    const f = new THREE.Vector3(g.dir[0], g.dir[1], g.dir[2]);
+    let P = new THREE.Vector3(g.pos[0], g.pos[1], g.pos[2]), zoom: number;
+    if (cube) zoom = S / 2;
+    else if (g.type === 3) zoom = (S / 2) / Math.tan(Math.min(Math.acos(Math.max(-1, Math.min(1, g.cosOut))) * 1.05, 1.5));
+    else { const D = 40000, cover = Math.hypot(this.w, this.h) * 1.5; P = T.clone().addScaledVector(f, -D); zoom = (S / 2) * D / cover; }
+    const W = cube ? 3 * S : S, H = cube ? 2 * S : S;
+    let rt = this.shadowRTs[k];
+    if (!rt || rt.width !== W || rt.height !== H) {
+      rt?.dispose();
+      rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.FloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
+      setRtScale(rt, 1);
+      this.shadowRTs[k] = rt;
+    }
+    this.shadowClear ??= new FSPass(/* glsl */ 'void main() { fragColor = vec4(1e20); }', {}, { blending: THREE.NoBlending });
+    this.shadowClear.render(r, rt);
+    const flat = { ...cam, dof: undefined };
+    const faces: { R: number[]; ox: number; oy: number }[] = cube
+      ? [0, 1, 2, 3, 4, 5].map((i) => ({ R: cubeFace(i), ox: (i % 3) * S, oy: Math.floor(i / 3) * S }))
+      : [{ R: cameraRows(f), ox: 0, oy: 0 }];
+    this.shadowing = true;
+    try {
+      for (const fc of faces) {
+        const Rr = fc.R;
+        for (const it of items) {
+          const e = it.e, l = e.l;
+          if (!it.d3 || !l.material?.castsShadows || l.cornerPin || l.adjustment) continue;
+          const Wm = it.col ? it.col.pre.clone().multiply(e.world) : e.world;
+          // light camera space of the layer point (x, y, 0, 1), then onto the map (as project() does for the comp camera);
+          // a layer partly behind the light camera is still drawn: the depth pass drops the fragments behind it
+          const we = Wm.elements, c0 = [we[0]!, we[1]!, we[2]!], c1 = [we[4]!, we[5]!, we[6]!], c3 = [we[12]! - P.x, we[13]! - P.y, we[14]! - P.z];
+          const row = (i: number, v: number[]) => Rr[i * 3]! * v[0]! + Rr[i * 3 + 1]! * v[1]! + Rr[i * 3 + 2]! * v[2]!;
+          const G = [row(0, c0), row(0, c1), row(0, c3), row(1, c0), row(1, c1), row(1, c3), row(2, c0), row(2, c1), row(2, c3)];
+          const zAt = (x: number, y: number) => G[6]! * x + G[7]! * y + G[8]!;
+          if (Math.max(zAt(0, 0), zAt(e.size[0], 0), zAt(0, e.size[1]), zAt(e.size[0], e.size[1])) < 1) continue;
+          const cx = S / 2 + fc.ox, cy = S / 2 + fc.oy;
+          const Hm = [zoom * G[0]! + cx * G[6]!, zoom * G[1]! + cx * G[7]!, zoom * G[2]! + cx * G[8]!,
+            zoom * G[3]! + cy * G[6]!, zoom * G[4]! + cy * G[7]!, zoom * G[5]! + cy * G[8]!, G[6]!, G[7]!, G[8]!];
+          const C = it.owner;
+          C.col = it.col; C.names = it.names;
+          // (a cube face: only this face's cell — the depth pass clips nothing, so mask the other cells with a scissor)
+          if (cube) { rt.scissor.set(fc.ox, fc.oy === 0 ? S : 0, S, S); rt.scissorTest = true; }
+          C.drawLayer({ ...e, H: Hm, Hz: undefined }, songT, it.map, it.off, rt, it.opacityMul, undefined, null, undefined, flat);
+          if (cube) rt.scissorTest = false;
+          if (C !== this) C.col = null;
+        }
+      }
+    } finally {
+      this.shadowing = false;
+    }
+    return { tex: rt.texture, P: [P.x, P.y, P.z], R: faces[0]!.R, zoom, size: S, darkness: Math.min(1, Math.max(0, L.shadowDarkness ?? 1)), soft: Math.max(0, L.shadowDiffusion ?? 0), cube };
+  }
+
+  /** The lighting for a 3D layer drawn from a buffer padded by `pad` (none: no lights, a 2D or corner-pinned layer, or opted out). */
+  private lightFor(e: Eval, pad: number): Lighting | undefined {
+    const L = this.R.lit, l = e.l;
+    if (!L || !(l.threeD || this.col) || l.cornerPin || l.material?.acceptsLights === false) return undefined;
+    const Wm = (this.col ? this.col.pre.clone().multiply(e.world) : e.world.clone()).multiply(new THREE.Matrix4().makeTranslation(-pad, -pad, 0));
+    const m = l.material ?? {};
+    return { world: Wm.elements, cam: L.cam, ambient: L.ambient, lights: L.lights, shadows: L.shadows,
+      material: [m.ambient ?? 1, m.diffuse ?? 1, m.specular ?? 0, m.shininess ?? 0.3], acceptsShadows: m.acceptsShadows !== false };
+  }
+
   private occTarget(): THREE.WebGLRenderTarget {
     if (this.occ) return this.occ.rt;
     const r = this.host.renderer, out = this.curOut!;
@@ -1008,6 +1170,7 @@ export class Comp {
     for (const v of this.threes.values()) { v.rt.dispose(); v.depthRT?.dispose(); }
     this.threes.clear();
     this.occRT?.dispose();
+    for (const t of this.shadowRTs) t.dispose();
     this.own?.dispose();
     if (!this.o.fx) this.fx.dispose();
   }

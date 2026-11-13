@@ -239,6 +239,37 @@ export interface CompositeOpts {
    * where it lies behind it. engine/layers.ts fills it from a three layer below.
    */
   depth?: THREE.Texture | null;
+  /** Lights on a projective layer (a 3D layer in a comp with lights; engine/layers.ts fills it). */
+  light?: Lighting;
+}
+
+/** A shadow map: depth along a light camera's axis (comp px), the camera as comp px → its axes (right, down, forward). */
+/** cube: a point light's six 90° faces in a 3 x 2 atlas of size-px cells (R unused; the faces' axes are fixed, see cubeFace). */
+export interface ShadowMap { tex: THREE.Texture; P: readonly number[]; R: readonly number[]; zoom: number; size: number; darkness: number; soft: number; cube?: boolean }
+/** One light, resolved: type 1 parallel, 2 point, 3 spot; colour linear × intensity; dir from the light toward its target. */
+export interface LightGPU {
+  type: 1 | 2 | 3;
+  pos: readonly number[];
+  dir: readonly number[];
+  color: readonly number[];
+  cosIn: number;
+  cosOut: number;
+  /** 0 none, 1 smooth (full within radius, 0 by radius + distance), 2 inverse square (clamped inside radius). */
+  falloff: 0 | 1 | 2;
+  radius: number;
+  distance: number;
+  shadow?: number;
+}
+/** Lighting for one layer: its layer px → comp px matrix (column-major 4x4), the camera, the lights, its material. */
+export interface Lighting {
+  world: readonly number[];
+  cam: readonly number[];
+  ambient: readonly number[];
+  lights: readonly LightGPU[];
+  shadows: readonly ShadowMap[];
+  /** [ambient, diffuse, specular, shininess 0–1]. */
+  material: readonly number[];
+  acceptsShadows: boolean;
 }
 
 /**
@@ -255,6 +286,71 @@ const EXT_HEAD = /* glsl */ `
   // the plane's 1 / depth at this fragment: from xf's third row, or from the depth matrix's
   float invDepth(vec3 hq) { return useZxf ? (zxf * vec3(vUv.x * targetPx.x, (1.0 - vUv.y) * targetPx.y, 1.0)).z : hq.z; }
   float lumaD(vec3 c) { return dot(toSRGB(clamp(c, 0.0, 1.0)), vec3(0.2126, 0.7152, 0.0722)); }
+  // ---- lights on a 3D layer (Lighting): the fragment's place in comp space from its layer px
+  uniform bool useLight; uniform mat4 lw; uniform vec3 camP, ambL; uniform vec4 matK; uniform bool accShadow;
+  uniform int nL; uniform int lType[4]; uniform vec3 lPos[4], lDir[4], lCol[4]; uniform vec4 lCone[4]; uniform vec2 lFall[4]; uniform int lSh[4];
+  uniform highp sampler2D shMap0, shMap1; uniform vec3 shP[2]; uniform mat3 shR[2]; uniform vec4 shK[2]; uniform bool shCube[2];
+  vec2 gQ;
+  // a point light's cube face for direction d (from the light): its axes as rows (right, down, forward) and its atlas
+  // cell (3 x 2 faces: +x −x +y / −y +z −z). The same rule as engine/layers.ts cubeFace()
+  mat3 cubeFace(vec3 d, out vec2 cell) {
+    vec3 a = abs(d), f; int face;
+    if (a.x >= a.y && a.x >= a.z) { face = d.x > 0.0 ? 0 : 1; f = vec3(sign(d.x), 0.0, 0.0); }
+    else if (a.y >= a.z) { face = d.y > 0.0 ? 2 : 3; f = vec3(0.0, sign(d.y), 0.0); }
+    else { face = d.z > 0.0 ? 4 : 5; f = vec3(0.0, 0.0, sign(d.z)); }
+    vec3 d0 = abs(f.y) > 0.5 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0), r = cross(d0, f), dn = cross(f, r);
+    cell = vec2(float(face - (face / 3) * 3), float(face / 3));
+    return transpose(mat3(r, dn, f));
+  }
+  // n: the surface normal on the light's side. The lookup point is pushed off the surface by about the filter's reach
+  // (normal offset), so a plane at a grazing angle does not shadow itself between neighbouring map texels
+  float shadowAt(int k, vec3 p, vec3 n) {
+    bool cube = shCube[k];
+    vec2 cell = vec2(0.0);
+    mat3 R = cube ? cubeFace(p - shP[k], cell) : shR[k];
+    vec3 X0 = R * (p - shP[k]);
+    if (X0.z <= 1.0) return 1.0;
+    float S = shK[k].y, ts = X0.z / shK[k].x;                 // comp px per map px here
+    float stepMap = max(shK[k].w * 0.5 / ts, 0.75);            // filter step, map px
+    vec3 X = R * (p + n * ts * (1.0 + 2.5 * stepMap) - shP[k]);
+    if (X.z <= 1.0) return 1.0;
+    vec2 s = shK[k].x * X.xy / X.z + S * 0.5;
+    if (!cube && (s.x < 0.0 || s.x > S || s.y < 0.0 || s.y > S)) return 1.0;
+    // the map's px: one face (S x S), or this face's cell in the 3 x 2 atlas (taps kept inside the cell)
+    vec2 A = cube ? vec2(3.0, 2.0) * S : vec2(S);
+    float bias = max(0.5, X.z * 1e-4), lit = 0.0;
+    for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) {
+      vec2 q = s + vec2(float(i), float(j)) * stepMap;
+      if (cube) q = clamp(q, vec2(0.5), vec2(S - 0.5)) + cell * S;
+      vec2 uv = vec2(q.x, A.y - q.y) / A;
+      float z = k == 0 ? texture(shMap0, uv).r : texture(shMap1, uv).r;
+      lit += X.z > z + bias ? 0.0 : 1.0;
+    }
+    return mix(1.0, lit / 25.0, shK[k].z);
+  }
+  vec4 applyLight(vec4 c) {
+    vec3 p = (lw * vec4(gQ, 0.0, 1.0)).xyz, n = normalize(cross(lw[0].xyz, lw[1].xyz)), V = normalize(camP - p);
+    if (dot(n, V) < 0.0) n = -n;
+    vec3 dif = ambL * matK.x, spe = vec3(0.0);
+    for (int i = 0; i < 4; i++) {
+      if (i >= nL) break;
+      vec3 L; float att = 1.0;
+      if (lType[i] == 1) L = -lDir[i];
+      else {
+        vec3 d = lPos[i] - p; float dist = length(d); L = d / max(dist, 1e-4);
+        if (lCone[i].z > 0.5 && lCone[i].z < 1.5) att = 1.0 - smoothstep(lFall[i].x, lFall[i].x + max(lFall[i].y, 1e-3), dist);
+        else if (lCone[i].z > 1.5) att = dist <= lFall[i].x ? 1.0 : pow(lFall[i].x / dist, 2.0);
+        if (lType[i] == 3) att *= smoothstep(lCone[i].y, lCone[i].x, dot(-L, lDir[i]));
+      }
+      float nl = max(dot(n, L), 0.0);
+      if (nl <= 0.0 || att <= 0.0) continue;
+      if (accShadow && lSh[i] >= 0) att *= shadowAt(lSh[i], p, n);
+      dif += lCol[i] * nl * att * matK.y;
+      if (matK.z > 0.0) { vec3 hv = normalize(L + V); spe += lCol[i] * pow(max(dot(n, hv), 0.0), mix(4.0, 256.0, matK.w)) * att * matK.z; }
+    }
+    c.rgb = c.rgb * dif + spe * (premult ? 1.0 : c.a);
+    return c;
+  }
   // the layer's colour at this fragment, and its coverage (opacity x matte x edge); false = outside the layer
   bool layerSample(out vec4 c, out float k) {
     vec2 uv = vUv; float cov = 1.0;
@@ -264,6 +360,7 @@ const EXT_HEAD = /* glsl */ `
       if (persp) {
         // projective: divide, and measure the edge distance in screen px through the derivatives (exact for affine too)
         q = hq.xy / max(hq.z, 1e-6);
+        gQ = q;
         vec2 g = vec2(length(vec2(dFdx(q.x), dFdy(q.x))), length(vec2(dFdx(q.y), dFdy(q.y))));
         d = min(q, layerPx - q) / max(g, vec2(1e-6));
         if (hq.z <= 1e-6) d = vec2(-1.0);
@@ -317,6 +414,7 @@ const FIXED_EXT_FRAG = /* glsl */ `${EXT_HEAD}
   void main() {
     vec4 c; float k;
     if (!layerSample(c, k)) discard;
+    if (useLight) c = applyLight(c);
     c.rgb *= tint;
     if (premult) c.rgb *= c.a;
     fragColor = c * k;
@@ -357,6 +455,7 @@ const READ_FRAG = /* glsl */ `${EXT_HEAD}
   void main() {
     vec4 c; float k;
     if (!layerSample(c, k)) discard;
+    if (useLight) c = applyLight(c);
     float a = clamp(c.a, 0.0, 1.0) * k;
     if (a <= 0.0) discard;
     vec3 cs = (premult ? c.rgb : c.rgb / max(c.a, 1e-4)) * tint;
@@ -422,7 +521,47 @@ export class Compositor {
       useXf: { value: false }, persp: { value: false }, xf: { value: new THREE.Matrix3() }, layerPx: { value: new THREE.Vector2(1, 1) }, targetPx: { value: new THREE.Vector2(1, 1) }, edgePx: { value: new THREE.Vector2(1, 1) },
       useMatte: { value: false }, matte: { value: null }, matteMode: { value: 0 }, mattePremult: { value: true },
       useDepth: { value: false }, depthTex: { value: null }, useZxf: { value: false }, zxf: { value: new THREE.Matrix3() },
+      useLight: { value: false }, lw: { value: new THREE.Matrix4() }, camP: { value: new THREE.Vector3() }, ambL: { value: new THREE.Vector3() },
+      matK: { value: new THREE.Vector4(1, 1, 0, 0.3) }, accShadow: { value: false }, nL: { value: 0 }, lType: { value: [0, 0, 0, 0] },
+      lPos: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) }, lDir: { value: [0, 1, 2, 3].map(() => new THREE.Vector3(0, 0, 1)) },
+      lCol: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) }, lCone: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
+      lFall: { value: [0, 1, 2, 3].map(() => new THREE.Vector2()) }, lSh: { value: [-1, -1, -1, -1] },
+      shMap0: { value: null }, shMap1: { value: null }, shP: { value: [new THREE.Vector3(), new THREE.Vector3()] },
+      shR: { value: [new THREE.Matrix3(), new THREE.Matrix3()] }, shK: { value: [new THREE.Vector4(1, 1, 0, 0), new THREE.Vector4(1, 1, 0, 0)] }, shCube: { value: [false, false] },
     };
+  }
+
+  /** Fill the lighting uniforms (or switch lighting off). */
+  private static setLight(u: Record<string, THREE.IUniform>, L: Lighting | undefined) {
+    u.useLight!.value = !!L;
+    if (!L) return;
+    (u.lw!.value as THREE.Matrix4).fromArray(L.world as number[]);
+    (u.camP!.value as THREE.Vector3).set(L.cam[0] ?? 0, L.cam[1] ?? 0, L.cam[2] ?? 0);
+    (u.ambL!.value as THREE.Vector3).set(L.ambient[0] ?? 0, L.ambient[1] ?? 0, L.ambient[2] ?? 0);
+    (u.matK!.value as THREE.Vector4).set(L.material[0] ?? 1, L.material[1] ?? 1, L.material[2] ?? 0, L.material[3] ?? 0.3);
+    u.accShadow!.value = L.acceptsShadows && L.shadows.length > 0;
+    const n = Math.min(4, L.lights.length);
+    u.nL!.value = n;
+    const type = u.lType!.value as number[], sh = u.lSh!.value as number[];
+    for (let i = 0; i < 4; i++) {
+      const l = L.lights[i];
+      type[i] = l?.type ?? 0;
+      sh[i] = l?.shadow ?? -1;
+      if (!l) continue;
+      (u.lPos!.value as THREE.Vector3[])[i]!.set(l.pos[0] ?? 0, l.pos[1] ?? 0, l.pos[2] ?? 0);
+      (u.lDir!.value as THREE.Vector3[])[i]!.set(l.dir[0] ?? 0, l.dir[1] ?? 0, l.dir[2] ?? 1);
+      (u.lCol!.value as THREE.Vector3[])[i]!.set(l.color[0] ?? 0, l.color[1] ?? 0, l.color[2] ?? 0);
+      (u.lCone!.value as THREE.Vector4[])[i]!.set(l.cosIn, l.cosOut, l.falloff, 0);
+      (u.lFall!.value as THREE.Vector2[])[i]!.set(l.radius, l.distance);
+    }
+    L.shadows.slice(0, 2).forEach((s, k) => {
+      u[k === 0 ? 'shMap0' : 'shMap1']!.value = s.tex;
+      (u.shP!.value as THREE.Vector3[])[k]!.set(s.P[0] ?? 0, s.P[1] ?? 0, s.P[2] ?? 0);
+      const r = s.R;
+      (u.shR!.value as THREE.Matrix3[])[k]!.set(r[0]!, r[1]!, r[2]!, r[3]!, r[4]!, r[5]!, r[6]!, r[7]!, r[8]!);
+      (u.shK!.value as THREE.Vector4[])[k]!.set(s.zoom, s.size, s.darkness, s.soft);
+      (u.shCube!.value as boolean[])[k] = !!s.cube;
+    });
   }
   private getExt(mode: FixedBlendMode) {
     let p = this.extPasses.get(mode);
@@ -470,6 +609,7 @@ export class Compositor {
     u.useDepth!.value = !!(o.depth && xf?.matrix);
     u.depthTex!.value = o.depth ?? null;
     u.useZxf!.value = false;
+    Compositor.setLight(u, xf?.matrix ? o.light : undefined);
     const dm = xf?.matrix && xf.depthMatrix;
     if (dm) {
       const zi = new THREE.Matrix3().set(dm[0]!, dm[1]!, dm[2]!, dm[3]!, dm[4]!, dm[5]!, dm[6]!, dm[7]!, dm[8]!);

@@ -10,6 +10,12 @@
 //   ?blend              混合模式、轨道遮罩、预合成图层变换（engine/gl.ts、engine/precomp.ts、scenes/demo_blend.ts）
 //   ?layers             图层系统和效果栈：3D 图层和摄像机、父子、fps、蒙版、效果、调整层、遮罩、回声、时间重映射，
 //                       外加一条跨切点的时间线效果条（engine/layers.ts、engine/effects.ts、scenes/demo_layers.ts）
+//   ?effects            效果栈：扭曲、转场、调色、图层样式、光，一格一个（engine/effects.ts、scenes/demo_effects.ts）
+//   ?particles          粒子：喷泉、火花爆发、雪尘湍流、字散成粒子、3D 球面 + 摄像机、环和星芒（engine/particles.ts、scenes/demo_particles.ts）
+//   ?pathops            路径运算（圆角、收缩膨胀、扭转、锯齿、位移）、合并路径、运动路径 + 自动朝向（engine/pathops.ts、anim.ts motionPath）
+//   ?lights             灯光和投影：环境光、聚光灯（软影子）、平行光，材质的投影 / 接受 / 高光（layers.ts 的 lights、material）
+//   ?deform             操控点（小人挥手、字随波弯）和碎裂（玻璃、放射状 + 裂纹传播）（engine/puppet.ts、shatter.ts）
+//   ?camtrack           3D 摄像机反求：反求的摄像机 + 实拍，牌子立在地上、旗子插在反求的点上、地上冒火花（tools/camtrack.py、engine/track.ts；素材先用 camtrack.py --test 生成）
 //   ?typeset            排字：竖排、沿路径排字、字里填图案（engine/textanim.ts、scenes/demo_typeset.ts）
 //   ?reveal             到达时间和换张：按笔顺写字带笔尖、线稿一段一段描、光一档一档扩开、黑条擦掉、换张按锚点对齐
 //                       （engine/arrival.ts、effects.ts 的 reveal、engine/swap.ts、scenes/demo_reveal.ts）
@@ -45,7 +51,7 @@ export function demos(E0: E, au: AudioData): TimelineEntry[] | null {
   if (q.has('sky')) return [E('demo-sky', 'demo_sky', 0, au.duration)];
   if (q.has('voxel')) return [E('demo-voxel', 'demo_voxel', 0, au.duration)];
   if (q.has('tactile')) return [E0('demo-tactile', 'demo_tactile', 0, au.duration)]; // 新写的，用中性默认后期
-  for (const k of ['brush', 'mg', 'caption', 'paper', 'liquid', 'glass', 'plate', 'ease', 'textanim', 'shape', 'blend', 'typeset', 'reveal', 'space', 'stage']) if (q.has(k)) return [E0(`demo-${k}`, `demo_${k}`, 0, au.duration)];
+  for (const k of ['brush', 'mg', 'caption', 'paper', 'liquid', 'glass', 'plate', 'ease', 'textanim', 'shape', 'blend', 'typeset', 'reveal', 'space', 'stage', 'effects', 'particles', 'pathops', 'lights', 'deform', 'camtrack']) if (q.has(k)) return [E0(`demo-${k}`, `demo_${k}`, 0, au.duration)];
   if (q.has('layers')) {
     // a cut at 5 s (the scene goes on: it is the clip that shows the cut): the 3 frames before it change colour,
     // smear and burn out, the first frame after is inverted, the next one soft

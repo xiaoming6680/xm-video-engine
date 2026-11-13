@@ -594,3 +594,62 @@ export function holdClock(t: number, holds: readonly (readonly [from: number, to
   }
   return t - lag;
 }
+
+// ---------------------------------------------------------------- spatial path (AE's motion path)
+
+/**
+ * A spatial key: when, where (px; 2 or 3 numbers), how time eases through it (KMode, like kf), and optionally the
+ * spatial handles relative to the point (AE's incoming / outgoing spatial tangents). Without handles the path is
+ * AE's auto bezier through the points (a straight line between two keys); `linear: true` on the path makes corners.
+ */
+export interface PathKey { t: number; p: readonly number[]; mode?: KMode; in?: readonly number[]; out?: readonly number[] }
+
+/**
+ * Motion along a bezier path (AE's spatial interpolation with auto-orient): the position moves along the curve by
+ * arc length, and the keys' modes shape the speed along it (kf over the distance travelled, so 'auto' keys pass
+ * through at an even speed, K.go / K.land ease in and out). at(t) → { p, angle (deg, the direction of travel: what
+ * AE's auto-orient turns a layer to; 0 = right, clockwise) }.
+ *   const fly = motionPath([{ t: 0, p: [200, 800], mode: K.go }, { t: 1.2, p: [900, 300] }, { t: 2, p: [1600, 700], mode: K.land }]);
+ *   { position: (t) => fly.at(t).p, rotation: (t) => fly.at(t).angle }
+ */
+export function motionPath(keys: readonly PathKey[], o: { linear?: boolean } = {}) {
+  const n = keys.length, dim = Math.max(2, ...keys.map((k) => k.p.length));
+  const P = keys.map((k) => Array.from({ length: dim }, (_, d) => k.p[d] ?? 0));
+  const sub = (a: number[], b: number[]) => a.map((x, d) => x - b[d]!);
+  const add = (a: number[], b: number[], s = 1) => a.map((x, d) => x + b[d]! * s);
+  // the auto tangents (Catmull-Rom with the keys' spacing), a third of them as handles
+  const T = P.map((p, i) => (n < 2 ? p.map(() => 0) : i === 0 ? sub(P[1]!, p) : i === n - 1 ? sub(p, P[n - 2]!) : sub(P[i + 1]!, P[i - 1]!).map((x) => x / 2)));
+  const segs = Array.from({ length: Math.max(0, n - 1) }, (_, i) => {
+    const a = P[i]!, b = P[i + 1]!;
+    const h1 = o.linear ? a : keys[i]!.out ? add(a, Array.from({ length: dim }, (_, d) => keys[i]!.out![d] ?? 0)) : add(a, T[i]!, 1 / 3);
+    const h2 = o.linear ? b : keys[i + 1]!.in ? add(b, Array.from({ length: dim }, (_, d) => keys[i + 1]!.in![d] ?? 0)) : add(b, T[i + 1]!, -1 / 3);
+    const pt = (u: number) => { const v = 1 - u; return a.map((_, d) => v * v * v * a[d]! + 3 * v * v * u * h1[d]! + 3 * v * u * u * h2[d]! + u * u * u * b[d]!); };
+    const tan = (u: number) => { const v = 1 - u; return a.map((_, d) => 3 * v * v * (h1[d]! - a[d]!) + 6 * v * u * (h2[d]! - h1[d]!) + 3 * u * u * (b[d]! - h2[d]!)); };
+    // arc length table
+    const N = 64, cum = new Float64Array(N + 1);
+    let prev = pt(0);
+    for (let k = 1; k <= N; k++) { const q = pt(k / N); cum[k] = cum[k - 1]! + Math.hypot(...sub(q, prev)); prev = q; }
+    return { pt, tan, cum, len: cum[N]! };
+  });
+  const start = [0];
+  for (const s of segs) start.push(start[start.length - 1]! + s.len);
+  const dist = keys.map((k, i) => [k.t, start[i]!, k.mode] as Key<number>);
+  const total = start[start.length - 1]!;
+  return {
+    length: total,
+    at(t: number): { p: number[]; angle: number } {
+      if (n === 0) return { p: [0, 0], angle: 0 };
+      if (n === 1) return { p: P[0]!.slice(), angle: 0 };
+      const D = Math.min(total, Math.max(0, kf(t, dist)));
+      let i = 0;
+      while (i < segs.length - 1 && D > start[i + 1]!) i++;
+      const s = segs[i]!, local = D - start[i]!, N = s.cum.length - 1;
+      let lo = 0, hi = N;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (s.cum[m]! <= local) lo = m; else hi = m; }
+      const span = s.cum[hi]! - s.cum[lo]!, u = (lo + (span > 0 ? (local - s.cum[lo]!) / span : 0)) / N;
+      let d = s.tan(u);
+      if (Math.hypot(...d) < 1e-9) d = s.tan(Math.min(1, Math.max(0, u + (u < 0.5 ? 1e-3 : -1e-3))));
+      return { p: s.pt(u), angle: (Math.atan2(d[1]!, d[0]!) * 180) / Math.PI };
+    },
+  };
+}

@@ -38,6 +38,10 @@
 //                    重复器：第 k 份 = 变换叠 k 次（位移 + 旋转出弧线和螺旋，和 AE 一样）。copies 可以是小数（最后一份按小数部分透明），
 //                    offset 可以是小数（份数整体沿变换滑动，均匀缩放时是精确的连续变换）。order 'below' 后面的份压在下面
 //   style.opacity    整体透明度；style.tol  拍平精度（屏幕像素，默认 0.2）
+//   style.ops        路径运算，按顺序做（engine/pathops.ts）：roundCorners 圆角、puckerBloat 收缩和膨胀、twist 扭转、zigzag 锯齿、
+//                    offset 位移路径。在抖动和生长之前
+//   style.merge      'add' | 'subtract' | 'intersect' | 'exclude'：传进来的几条路径合并（Merge Paths）：填充按像素合并，
+//                    描边、虚线、描边生长沿合并后的外轮廓（各条路径落在结果边界上的那几段）
 //
 // ── 其他 ──
 //   new PathMorph(A, B, { n })   路径变形：按弧长重采样、对齐起点和方向后插值；子路径按大小配对，多出来的从一点长出来 / 缩回去。
@@ -48,12 +52,13 @@
 //   pathLength(flat)             总长
 //
 // 和 AE 不一样的地方：渐细描边的拐角和端点总是圆的（butt 端点除外）；路径抖动没有 Correlation；重复器的非均匀缩放
-// 在小数 offset 上是近似的；没有 Merge Paths、Offset Paths、Pucker & Bloat、Round Corners 效果（圆角在建路径时给）。
+// 在小数 offset 上是近似的；位移路径往里收过头会自交（AE 会清掉）。
 // 性能：拍平按 0.2 屏幕像素的误差（Wang 公式）给每段曲线分段，结果按半个八度缓存；抖动、生长、虚线每帧现算，几千个点在 1 ms 内。
 // 渐细描边画成填充多边形（每段一个四边形 + 拐角圆），比原生 stroke 慢，长路径（上万点）上会到几毫秒。
 import { clamp, lerp, TAU, type V2 } from './util';
 import { SCALE } from './scale';
 import { textPathCommands } from './type';
+import { applyOps, fillMerged, flatPath2D, mergedOutline, puckerCmds, type MergeMode, type PathOp } from './pathops';
 
 // ---------------------------------------------------------------- path commands
 
@@ -923,6 +928,10 @@ export interface ShapeStyle {
   opacity?: number;
   /** Flattening tolerance in screen px (default 0.2). */
   tol?: number;
+  /** Path operators, in order (engine/pathops.ts): roundCorners, puckerBloat, twist, zigzag, offset. */
+  ops?: readonly PathOp[];
+  /** Merge the sources' fills (engine/pathops.ts): the first, then each next one by this mode. */
+  merge?: MergeMode;
 }
 
 /** Device px per local unit under the context's current transform (Layer2D: logical px × SCALE). */
@@ -937,15 +946,28 @@ function devScale(c: CanvasRenderingContext2D): number {
  */
 export function drawShape(c: CanvasRenderingContext2D, src: Path | Flat | readonly (Path | Flat)[], st: ShapeStyle = {}, t = 0): Piece[] {
   const ds = devScale(c), tol = (st.tol ?? 0.2) / ds;
-  let flat: Flat;
-  if (src instanceof Path) flat = src.flat(tol);
-  else if (src.length && (src[0] instanceof Path || Array.isArray(src[0]))) flat = (src as readonly (Path | Flat)[]).flatMap((s) => toFlat(s, tol));
-  else flat = src as Flat;
+  // the sources one by one (merge needs them apart); pucker & bloat works on a Path's commands
+  const list: readonly (Path | Flat)[] = src instanceof Path ? [src] : src.length && (src[0] instanceof Path || Array.isArray(src[0])) ? src as readonly (Path | Flat)[] : [src as Flat];
+  const ops = st.ops ?? [];
+  const groups = list.map((s) => {
+    let p = s, rest = ops;
+    if (p instanceof Path && ops.some((o) => o.type === 'puckerBloat')) {
+      let cmds = p.cmds;
+      for (const o of ops) if (o.type === 'puckerBloat') cmds = puckerCmds(cmds, o.amount);
+      p = new Path(cmds);
+      rest = ops.filter((o) => o.type !== 'puckerBloat');
+    }
+    return applyOps(toFlat(p, tol), rest, tol);
+  });
+  let flat: Flat = groups.length === 1 ? groups[0]! : groups.flat();
   if (st.wiggle && st.wiggle.amount) flat = wigglePath(flat, st.wiggle, t, 1.5 / ds);
-  const pieces = trimPath(flat, st.trim);
-  if (!pieces.length) return pieces;
-  const fp = st.fill ? fillGeom(pieces) : null;
-  const sg = st.stroke && st.stroke.width > 0 ? strokeGeom(pieces, st.stroke) : null;
+  // merge: the fill from the sources' masks, the stroke (and trim) along the merged outline
+  const mg = st.merge && groups.length > 1 ? groups.map((g) => (st.wiggle && st.wiggle.amount ? wigglePath(g, st.wiggle, t, 1.5 / ds) : g)) : null;
+  const merged = mg && st.fill ? mg.map((g) => flatPath2D(g)) : null;
+  const pieces = trimPath(mg ? mergedOutline(mg, st.merge!, st.fillRule ?? 'nonzero', Math.max(tol * 8, 0.5)) : flat, st.trim);
+  if (!pieces.length && !merged) return pieces;
+  const fp = st.fill && !merged ? fillGeom(pieces) : null;
+  const sg = st.stroke && st.stroke.width > 0 && pieces.length ? strokeGeom(pieces, st.stroke) : null;
   const fillPaint = st.fill ? paintOf(c, st.fill) : null;
   const strokePaint = sg ? paintOf(c, st.stroke!.color) : null;
   const paint = () => {
@@ -966,7 +988,8 @@ export function drawShape(c: CanvasRenderingContext2D, src: Path | Flat | readon
       c.globalAlpha = a0;
     };
     if (st.strokeUnder) doStroke();
-    if (fp) { c.fillStyle = fillPaint!; c.fill(fp, st.fillRule ?? 'nonzero'); }
+    if (merged) fillMerged(c, merged, st.merge!, fillPaint!, st.fillRule ?? 'nonzero');
+    else if (fp) { c.fillStyle = fillPaint!; c.fill(fp, st.fillRule ?? 'nonzero'); }
     if (!st.strokeUnder) doStroke();
   };
   c.save();
