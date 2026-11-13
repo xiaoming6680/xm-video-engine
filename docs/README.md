@@ -124,6 +124,9 @@
 | 重 3D、真实材质、光追、角色 | Blender 出序列帧 | `tools/blender/`（[说明](../tools/blender/README.md)），序列帧进 app 用 `engine/plate.ts` |
 | 贴图、背景、角色图 | 生图 | `tools/codex_gen.py`；抠图、拆层 `tools/assets/` |
 | 实拍、视频素材 | 抽帧当图层 | `tools/footage.py` + 图层的 `footage` |
+| 跟踪、稳定、抠主体、变速补帧 | OpenCV 光流 / 单应、SAM 2.1 | `tools/track.py`（点、平面、稳定）+ `engine/track.ts`、`tools/roto.py`、`tools/retime.py`；绿幕用效果 `chromaKey` |
+| 3D 东西放进实拍画面（反求摄像机） | 运动恢复结构 + 光束法平差 | `tools/camtrack.py` → `engine/track.ts` 的 `camera(t)`、`points`、`groundY`，示例 `?camtrack` |
+| 粒子：火花、尘、雪、字散开 | 实例化的 three.js 点 | `engine/particles.ts`（当 three 图层用，跟合成摄像机） |
 | 复古后期：CRT、VHS、故障、网点、调色 | 后期着色器 | `engine/post.ts` 的参数（默认全关），取值见[复刻配方](复刻配方.md) |
 | 照着参考片复刻一个镜头 | 逐帧对照 | [复刻配方](复刻配方.md)、`tools/refmatch.py`、技能 `mv-refmatch` |
 | 选字体 | 出对比图 | `tools/font_sheet.py` |
@@ -155,7 +158,12 @@
 | 图层：入出点、父子、3D 图层和摄像机、蒙版、效果栈、调整层、回声、逐层 fps、运动模糊 | `engine/layers.ts` 的 `Comp`，示例 `?layers` |
 | 字和 three.js 3D、Blender 镜头共用一台摄像机，互相遮挡 | `engine/space.ts` + 图层的 `three`，示例 `?space` |
 | 2.5D 舞台：卡片站在地面、互相穿过、四角钉、朝向摄像机 | 图层的 `cornerPin`、`faceCamera`、`collapse`，示例 `?stage` |
-| 图层效果：模糊、渐变映射、色阶、发光、半调、置换、故障、投影、描边、自定义着色器 | `engine/effects.ts` |
+| 图层效果：模糊、调色（曲线、色彩平衡、保留颜色…）、扭曲（凸起、旋转扭曲、极坐标、网格变形、置换图…）、擦除转场、翻页、卡片擦除、图层样式（内外发光、斜面、渐变叠加…）、光线、镜头光晕、漏光、抠像、自定义着色器 | `engine/effects.ts`（开头有全表），示例 `?effects` |
+| 操控点（Puppet）、碎裂（Shatter） | 效果 `puppet`（`engine/puppet.ts`）、`shatter`（`engine/shatter.ts`），示例 `?deform` |
+| 粒子（Particular 式：发射器、重力、湍流、随寿命变、拉长） | `engine/particles.ts`，示例 `?particles` |
+| 灯光和投影：环境光、平行光、点光、聚光灯（都能投影），图层的材质（投影、接受、高光） | Comp 的 `lights`、图层的 `material`，示例 `?lights`、`?lights=point` |
+| 形状的路径运算：圆角、收缩膨胀、扭转、锯齿、位移路径、合并路径（合并后的外轮廓照样描边、虚线、生长） | `drawShape` 的 `ops` / `merge`（`engine/pathops.ts`），示例 `?pathops` |
+| 运动路径：贝塞尔空间路径、按路程匀速或缓动、自动朝向 | `engine/anim.ts` 的 `motionPath` |
 | 跨两个场景的转场、切点前后几帧的变色和冲白、立体厚度 | 时间线条目的 `transition`、效果条 + `frameFrom`、图层的 `extrude` |
 | wiggle、关键帧循环 | `engine/anim.ts` 的 `wiggle`、`loopOut` |
 
