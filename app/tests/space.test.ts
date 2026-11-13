@@ -102,3 +102,20 @@ test('clipTime: repeat, once, pingpong', () => {
   near(clipTime(4.5, 2, 'pingpong'), 0.5);
   expect(clipTime(3, 0)).toBe(0);
 });
+
+test('a solved camera (tools/camtrack.py: quaternion of the camera axes right, down, forward) looks where its forward axis points', () => {
+  // a 30° turn about y: forward = (sin 30°, 0, cos 30°); a point 1000 px along it lands on the comp centre,
+  // one 100 px along the camera's right axis lands 100·zoom/1000 px right of it
+  const a = Math.PI / 6, q = [0, Math.sin(a / 2), 0, Math.cos(a / 2)];
+  const P = new THREE.Vector3(100, 50, -800), zoom = 1200;
+  const pose = cameraPose({ position: [P.x, P.y, P.z], quaternion: q, zoom }, 1920, 1080);
+  const fwd = new THREE.Vector3(Math.sin(a), 0, Math.cos(a)), right = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a));
+  const project = (p: THREE.Vector3) => {
+    const X = p.clone().sub(pose.P).applyMatrix4(pose.R.clone().transpose());
+    return [pose.zoom * X.x / X.z + 960, pose.zoom * X.y / X.z + 540];
+  };
+  const c = project(P.clone().addScaledVector(fwd, 1000));
+  expect(Math.abs(c[0]! - 960)).toBeLessThan(1e-6); expect(Math.abs(c[1]! - 540)).toBeLessThan(1e-6);
+  const r = project(P.clone().addScaledVector(fwd, 1000).addScaledVector(right, 100));
+  expect(Math.abs(r[0]! - (960 + 120))).toBeLessThan(1e-6);
+});
